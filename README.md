@@ -213,63 +213,416 @@ DataStream topItems = windowedData
 这里我们还使用了 `ListState<ItemViewCount>` 来存储收到的每条 `ItemViewCount` 消息，保证在发生故障时，状态数据的不丢失和一致性。`ListState` 是 Flink 提供的类似 Java `List` 接口的 State API，它集成了框架的 checkpoint 机制，自动做到了 exactly-once 的语义保证。
 
  ```
-/** 求某个窗口中前 N 名的热门点击商品，key 为窗口时间戳，输出为 TopN 的结果字符串 */
-public static class TopNHotItems extends KeyedProcessFunction {
-
-    private final int topSize;
-
-    public TopNHotItems(int topSize) {
-        this.topSize = topSize;
-    }
-
-    // 用于存储商品与点击数的状态，待收齐同一个窗口的数据后，再触发 TopN 计算
-    private ListState itemState;
-
-    @Override
-    public void open(Configuration parameters) throws Exception {
-        super.open(parameters);
-        // 状态的注册
-        ListStateDescriptor itemsStateDesc = new ListStateDescriptor<>(
-                "itemState-state",
-                ItemViewCount.class);
-        itemState = getRuntimeContext().getListState(itemsStateDesc);
-    }
-
-    @Override
-    public void processElement(
-            ItemViewCount input,
-            Context context,
-            Collector collector) throws Exception {
-
-        // 每条数据都保存到状态中
-        itemState.add(input);
-        // 注册 windowEnd+1 的 EventTime Timer, 当触发时，说明收齐了属于windowEnd窗口的所有商品数据
-        context.timerService().registerEventTimeTimer(input.windowEnd + 1);
-    }
-
-    @Override
-    public void onTimer(
-            long timestamp, OnTimerContext ctx, Collector out) throws Exception {
-        // 获取收到的所有商品点击量
-        List allItems = new ArrayList<>();
-        for (ItemViewCount item : itemState.get()) {
-            allItems.add(item);
-        }
-        // 提前清除状态中的数据，释放空间
-        itemState.clear();
-        // 按照点击量从大到小排序
-        allItems.sort(new Comparator() {
+package com.aliyun.market;
+ 
+ 
+import com.alibaba.fastjson.JSON;
+import org.apache.flink.api.common.functions.AggregateFunction;
+import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.java.tuple.Tuple;
+import org.apache.flink.api.java.tuple.Tuple1;
+import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.api.TimeCharacteristic;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
+import org.apache.flink.streaming.api.functions.timestamps.AscendingTimestampExtractor;
+import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
+import org.apache.flink.streaming.api.windowing.time.Time;
+import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer010;
+import org.apache.flink.util.Collector;
+ 
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Properties;
+ 
+ 
+/**
+ * 热门商品topN统计
+ * 数据下载 curl https://raw.githubusercontent.com/wuchong/my-flink-project/master/src/main/resources/UserBehavior.csv > UserBehavior.csv
+ * 数据在resource 下 UserBehavior.csv
+ * 参考： http://wuchong.me/blog/2018/11/07/use-flink-calculate-hot-items/
+ * <p>
+ * 知识点： aggregate函数 是专门来做统计的，一般跟着keyBy（）后面
+ * <p>
+ * 官网使用 ： aggregate(SUM, 0).and(MIN, 2)
+ */
+public class HotTopDemo {
+    public static void main(String[] args) throws Exception {
+ 
+        // todo 1，读取kafka数据
+        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+ 
+        //todo 获取kafka的配置属性
+        args = new String[]{"--input-topic", "user_behavior", "--bootstrap.servers", "node2.hadoop:9091,node3.hadoop:9091",
+                "--zookeeper.connect", "node1.hadoop:2181,node2.hadoop:2181,node3.hadoop:2181", "--group.id", "cc2"};
+ 
+        ParameterTool parameterTool = ParameterTool.fromArgs(args);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+ 
+ 
+//
+        Properties pros = parameterTool.getProperties();
+//        //todo 指定输入数据为kafka topic
+        DataStream<String> kafkaDstream = env.addSource(new FlinkKafkaConsumer010<String>(
+                pros.getProperty("input-topic"),
+                new SimpleStringSchema(),
+                pros).setStartFromLatest()
+ 
+        ).setParallelism(1);
+ 
+ 
+ 
+        //todo 我们用 PojoCsvInputFormat 创建输入源。
+        DataStream<UserBehavior> dataDstream =kafkaDstream.map(new MapFunction<String, UserBehavior>() {
             @Override
-            public int compare(ItemViewCount o1, ItemViewCount o2) {
-                return (int) (o2.viewCount - o1.viewCount);
+            public UserBehavior map(String input) throws Exception {
+                return  JSON.parseObject(input, UserBehavior.class);
             }
         });
-        // 将排名信息格式化成 String, 便于打印
-        StringBuilder result = new StringBuilder();
-        result.append("====================================\n");
-        result.append("时间: ").append(new Timestamp(timestamp-1)).append("\n");
-        for (int i=0;i
+ 
+        //给数据加上了一个水印
+        DataStream<UserBehavior> timedData = dataDstream
+                .assignTimestampsAndWatermarks(new AscendingTimestampExtractor<UserBehavior>() {
+                    @Override
+                    public long extractAscendingTimestamp(UserBehavior userBehavior) {
+                        // 原始数据单位秒 ，将其转成毫秒
+                        return userBehavior.category_id * 1000;
+                    }
+                });
+ 
+        //过滤出点击事件
+ 
+        DataStream<UserBehavior> pvData = timedData.filter(new FilterFunction<UserBehavior>() {
+            @Override
+            public boolean filter(UserBehavior userBehavior) throws Exception {
+                return userBehavior.behavior.equals("pv");
+            }
+        });
+ 
+        //todo 窗口统计点击量,设置窗口大小为1个小时，5分钟滑动一次
+        //由于要每隔5分钟统计一次最近一小时每个商品的点击量，所以窗口大小是一小时，每隔5分钟滑动一次。即分别要统计 [09:00, 10:00), [09:05, 10:05), [09:10, 10:10)… 等窗口的商品点击量。是一个常见的滑动窗口需求（Sliding Window）。
+ 
+        DataStream<ItemViewCount> windowedData = pvData.keyBy("item_id") //按字段分组
+                .timeWindow(Time.seconds(20), Time.seconds(10))
+                .aggregate(new CountAgg(), new WindowResultFunction()); //使用aggregate做增量聚合统计
+ 
+//        TopN 计算最热门商品
+        DataStream<String> topItems = windowedData
+                .keyBy("windowEnd")
+                .process(new TopNHotItems(2));  // 求点击量前3名的商品
+        topItems.print();
+        env.execute("Hot Items Job");
+ 
+    }
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+    //todo 功能是统计窗口中的条数，即遇到一条数据就加一
+ 
+    public static class CountAgg implements AggregateFunction<UserBehavior, Long, Long> {
+ 
+        @Override
+        public Long createAccumulator() { //创建一个数据统计的容器，提供给后续操作使用。
+            return 0L;
+        }
+ 
+        @Override
+        public Long add(UserBehavior userBehavior, Long acc) { //每个元素被添加进窗口的时候调用。
+            return acc + 1;
+        }
+ 
+        @Override
+        public Long getResult(Long acc) {
+            ;//窗口统计事件触发时调用来返回出统计的结果。
+            return acc;
+        }
+ 
+        @Override
+        public Long merge(Long acc1, Long acc2) { //只有在当窗口合并的时候调用,合并2个容器
+            return acc1 + acc2;
+        }
+    }
+ 
+    // todo 指定格式输出 ：将每个 key每个窗口聚合后的结果带上其他信息进行输出  进入的数据为Long 返回 ItemViewCount对象
+    public static class WindowResultFunction implements WindowFunction<Long, ItemViewCount, Tuple, TimeWindow> {
+ 
+        @Override
+        public void apply(
+                Tuple key,  // 窗口的主键，即 itemId
+                TimeWindow window,  // 窗口
+                Iterable<Long> aggregateResult, // 聚合函数的结果，即 count 值
+                Collector<ItemViewCount> collector  // 输出类型为 ItemViewCount
+        ) throws Exception {
+            Long itemId = ((Tuple1<Long>) key).f0;
+            Long count = aggregateResult.iterator().next();
+            collector.collect(ItemViewCount.of(itemId, window.getEnd(), count));
+        }
+    }
+ 
+    /**
+     * 商品点击量(窗口操作的输出类型)
+     */
+    public static class ItemViewCount {
+        public long itemId;     // 商品ID
+        public long windowEnd;  // 窗口结束时间戳
+        public long viewCount;  // 商品的点击量
+ 
+        public static ItemViewCount of(long itemId, long windowEnd, long viewCount) {
+            ItemViewCount result = new ItemViewCount();
+            result.itemId = itemId;
+            result.windowEnd = windowEnd;
+            result.viewCount = viewCount;
+            return result;
+        }
+    }
+ 
+    /** 求某个窗口中前 N 名的热门点击商品，key 为窗口时间戳，输出为 TopN 的结果字符串 */
+    public static class TopNHotItems extends KeyedProcessFunction<Tuple, ItemViewCount, String> {
+ 
+        private final int topSize;
+ 
+        public TopNHotItems(int topSize) {
+            this.topSize = topSize;
+        }
+ 
+        // 用于存储商品与点击数的状态，待收齐同一个窗口的数据后，再触发 TopN 计算
+        private ListState<ItemViewCount> itemState;
+ 
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
+            // 状态的注册
+            ListStateDescriptor<ItemViewCount> itemsStateDesc = new ListStateDescriptor<>(
+                    "itemState-state",
+                    ItemViewCount.class);
+            itemState = getRuntimeContext().getListState(itemsStateDesc);
+        }
+ 
+        @Override
+        public void processElement(
+                ItemViewCount input,
+                Context context,
+                Collector<String> collector) throws Exception {
+ 
+            // 每条数据都保存到状态中
+            itemState.add(input);
+            // 注册 windowEnd+1 的 EventTime Timer, 当触发时，说明收齐了属于windowEnd窗口的所有商品数据
+            context.timerService().registerEventTimeTimer(input.windowEnd + 1);
+        }
+ 
+        @Override
+        public void onTimer(
+                long timestamp, OnTimerContext ctx, Collector<String> out) throws Exception {
+            // 获取收到的所有商品点击量
+            List<ItemViewCount> allItems = new ArrayList<>();
+            for (ItemViewCount item : itemState.get()) {
+                allItems.add(item);
+            }
+            // 提前清除状态中的数据，释放空间
+            itemState.clear();
+            // 按照点击量从大到小排序
+            allItems.sort(new Comparator<ItemViewCount>() {
+                @Override
+                public int compare(ItemViewCount o1, ItemViewCount o2) {
+                    return (int) (o2.viewCount - o1.viewCount);
+                }
+            });
+            // 将排名信息格式化成 String, 便于打印
+            StringBuilder result = new StringBuilder();
+            result.append("====================================\n");
+            result.append("时间: ").append(new Timestamp(timestamp-1)).append("\n");
+            for (int i=0;i<topSize;i++) {
+                ItemViewCount currentItem = allItems.get(i);
+                // No1:  商品ID=12224  浏览量=2413
+                result.append("No").append(i).append(":")
+                        .append("  商品ID=").append(currentItem.itemId)
+                        .append("  浏览量=").append(currentItem.viewCount)
+                        .append("\n");
+            }
+            result.append("====================================\n\n");
+            out.collect(result.toString());
+        }
+    }
+}
  ```
+
+```
+package com.aliyun.market;
+
+import com.alibaba.fastjson.JSONObject;
+import org.apache.flink.api.common.functions.AggregateFunction;
+import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.streaming.api.TimeCharacteristic;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.timestamps.AscendingTimestampExtractor;
+import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
+import org.apache.flink.streaming.api.windowing.time.Time;
+import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer010;
+import org.apache.flink.util.Collector;
+
+import java.util.Properties;
+
+/**
+ * 商场实时数据统计,基于Flink 1.9版本
+ */
+public class MarketStreamCount {
+    public static void main(String[] args) {
+
+
+        // todo 1，读取kafka数据
+        final StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment(8);
+        //todo 获取kafka的配置属性
+        args = new String[]{"--input-topic", "user_behavior", "--bootstrap.servers", "node2.hadoop:9091,node3.hadoop:9091",
+                "--zookeeper.connect", "node1.hadoop:2181,node2.hadoop:2181,node3.hadoop:2181", "--group.id", "cc2"};
+
+        ParameterTool parameterTool = ParameterTool.fromArgs(args);
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+         Properties pros = parameterTool.getProperties();
+//        //todo 指定输入数据为kafka topic
+        DataStream<String> kafkaDstream = env.addSource(new FlinkKafkaConsumer010<String>(
+                pros.getProperty("input-topic"),
+                new SimpleStringSchema(),
+                pros).setStartFromEarliest()
+
+        ).setParallelism(1);
+
+        //todo 2,每层实时顾客人数，实时顾客总数，一天的实时顾客总数
+
+        // 转成json
+        DataStream<JSONObject> kafkaDstream2 = kafkaDstream.map(new MapFunction<String, JSONObject>() {
+            @Override
+            public JSONObject map(String input) throws Exception {
+                JSONObject inputJson = null;
+                try {
+                    inputJson = JSONObject.parseObject(input);
+                    return inputJson;
+                } catch (Exception e) {
+                    e.printStackTrace();
+//                    return null;
+                }
+                return inputJson;
+            }
+        }).filter(new FilterFunction<JSONObject>() {
+            @Override
+            public boolean filter(JSONObject jsonObject) throws Exception {
+                if (jsonObject!=null){
+                    return true;
+                }
+                return false;
+            }
+        });
+        //给数据加上了一个水印
+        DataStream<JSONObject> timedData = kafkaDstream2
+                .assignTimestampsAndWatermarks(new AscendingTimestampExtractor<JSONObject>() {
+                    @Override
+                    public long extractAscendingTimestamp(JSONObject json) {
+                        // 原始数据单位秒 ，将其转成毫秒
+                        return json.getLong("category_id") * 1000;
+                    }
+                });
+
+        //过滤出点击事件
+        // 实时客人数，各个层级
+        DataStream<JSONObject> windowedData = timedData.keyBy(new KeySelector<JSONObject, String>() {
+            @Override
+            public String getKey(JSONObject jsonObject) throws Exception {
+                return  jsonObject.getString("user_id");
+            }
+        }).timeWindow(Time.seconds(5L),Time.seconds(1L))
+                //使用aggregate做增量聚合统计
+                .aggregate(new CountAgg(),new WindowResultFunction());
+
+
+
+        windowedData.print();
+        try {
+            env.execute();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    //todo 功能是统计窗口中的条数，即遇到一条数据就加一
+
+    public static class CountAgg implements AggregateFunction<JSONObject, Long, Long> {
+
+        @Override
+        public Long createAccumulator() { //创建一个数据统计的容器，提供给后续操作使用。
+            return 0L;
+        }
+
+        @Override
+        public Long add(JSONObject json, Long acc) { //每个元素被添加进窗口的时候调用。
+            return acc + 1;
+        }
+
+        @Override
+        public Long getResult(Long acc) {
+            //窗口统计事件触发时调用来返回出统计的结果。
+            return acc;
+        }
+
+        @Override
+        public Long merge(Long acc1, Long acc2) { //只有在当窗口合并的时候调用,合并2个容器
+            return acc1 + acc2;
+        }
+    }
+
+    // todo 指定格式输出
+    public static class WindowResultFunction implements WindowFunction<Long, JSONObject, String, TimeWindow> {
+
+        @Override
+        public void apply(
+                String key,  // 窗口的主键，即 itemId
+                TimeWindow window,  // 窗口
+                Iterable<Long> aggregateResult, // 聚合函数的结果，即 count 值
+                Collector<JSONObject> collector  // 输出类型为 ItemViewCount
+        ) throws Exception {
+
+            Long count = aggregateResult.iterator().next();
+            //窗口结束时间
+            long end = window.getEnd();
+            JSONObject json = new JSONObject();
+            json.put("key",key);
+            json.put("count",count);
+            json.put("end",end);
+            collector.collect(json);
+        }
+    }
+
+}
+```
+
+
 
 #### 打印输出
 
@@ -283,3 +636,144 @@ env.execute("Hot Items Job");
 ### 运行程序
 
 直接运行 main 函数，就能看到不断输出的每个时间点的热门商品ID。
+
+
+
+
+
+# [flink统计根据账号每30秒 金额的平均值](https://www.cnblogs.com/jiang-it/p/8930897.html)
+
+```
+package com.zetyun.streaming.flink;
+
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.java.tuple.Tuple;
+import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.flink.streaming.api.TimeCharacteristic;
+import org.apache.flink.streaming.api.datastream.KeyedStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.api.functions.AssignerWithPeriodicWatermarks;
+import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor;
+import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
+import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
+import org.apache.flink.streaming.api.watermark.Watermark;
+import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
+import org.apache.flink.streaming.api.windowing.time.Time;
+import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer010;
+import org.apache.flink.streaming.util.serialization.JSONDeserializationSchema;
+import org.apache.flink.util.Collector;
+
+import javax.annotation.Nullable;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.Properties;
+
+/**
+ * Created by jyt on 2018/4/10.
+ * 基于账号计算每30秒 金额的平均值
+ */
+public class EventTimeAverage {
+
+    public static void main(String[] args) throws Exception {
+        final ParameterTool parameterTool = ParameterTool.fromArgs(args);
+        String topic = parameterTool.get("topic", "accountId-avg");
+        Properties properties = parameterTool.getProperties();
+        properties.setProperty("bootstrap.servers", "192.168.44.101:9092");
+        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+        ObjectMapper objectMapper = new ObjectMapper();
+        SingleOutputStreamOperator<ObjectNode> source = env.addSource(new FlinkKafkaConsumer010(
+                topic,
+                new JSONDeserializationSchema(),
+                properties));
+        //设置WaterMarks方式一
+        /*SingleOutputStreamOperator<ObjectNode> objectNodeOperator = source.assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<ObjectNode>(Time.seconds(15)) {
+            @Override
+            public long extractTimestamp(ObjectNode element) {
+                SimpleDateFormat format = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+                Date eventTime = null;
+                try {
+                    eventTime = format.parse(element.get("eventTime").asText());
+                } catch (ParseException e) {
+                    e.printStackTrace();
+                }
+                return eventTime.getTime();
+            }
+        });*/
+        //设置WaterMarks方式二
+        SingleOutputStreamOperator<ObjectNode> objectNodeOperator = source.assignTimestampsAndWatermarks(new AssignerWithPeriodicWatermarks<ObjectNode>() {
+            public long currentMaxTimestamp = 0L;
+            public static final long maxOutOfOrderness = 10000L;//最大允许的乱序时间是10s
+            Watermark a = null;
+            SimpleDateFormat format = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+
+
+            @Nullable
+            @Override
+            public Watermark getCurrentWatermark() {
+                a = new Watermark(currentMaxTimestamp - maxOutOfOrderness);
+                return a;
+            }
+
+            @Override
+            public long extractTimestamp(ObjectNode jsonNodes, long l) {
+                String time = jsonNodes.get("eventTime").asText();
+                long timestamp = 0;
+                try {
+                    timestamp = format.parse(time).getTime();
+                } catch (ParseException e) {
+                    e.printStackTrace();
+                }
+                currentMaxTimestamp = Math.max(timestamp, currentMaxTimestamp);
+                return timestamp;
+            }
+        });
+        KeyedStream<Tuple3<String, Double, String>, Tuple> keyBy = objectNodeOperator.map(new MapFunction<ObjectNode, Tuple3<String, Double, String>>() {
+            @Override
+            public Tuple3<String, Double, String> map(ObjectNode jsonNodes) throws Exception {
+                System.out.println(jsonNodes.get("accountId").asText() + "==map====" + jsonNodes.get("amount").asDouble() + "===map===" + jsonNodes.get("eventTime").asText());
+                return new Tuple3<String, Double, String>(jsonNodes.get("accountId").asText(), jsonNodes.get("amount").asDouble(), jsonNodes.get("eventTime").asText());
+            }
+        }).keyBy(0);
+
+
+        SingleOutputStreamOperator<Object> apply = keyBy.window(TumblingEventTimeWindows.of(Time.seconds(30))).apply(new WindowFunction<Tuple3<String,Double,String>, Object, Tuple, TimeWindow>() {
+            @Override
+            public void apply(Tuple tuple, TimeWindow timeWindow, Iterable<Tuple3<String, Double, String>> iterable, Collector<Object> collector) throws Exception {
+                Iterator<Tuple3<String, Double, String>> iterator = iterable.iterator();
+                int count =0;
+                double num = 0.0;
+                ///Tuple2<String, Double> result = null;
+                Tuple3<String, Double, String> next = null;
+                String accountId = null ;
+                while (iterator.hasNext()) {
+                    next = iterator.next();
+                    System.out.println(next);
+                    accountId=next.f0;
+                    num += next.f1;
+                    count++;
+                }
+                if (next != null) {
+
+                    collector.collect(new Tuple2<String, Double>(accountId,num/count));
+                }
+            }
+        });
+
+
+        apply.print();
+        //apply.addSink(new FlinkKafkaProducer010<String>("192.168.44.101:9092","wiki-result",new SimpleStringSchema()));
+        env.execute("AverageDemo");
+    }
+
+}
+```
+
