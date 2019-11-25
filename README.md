@@ -1,6 +1,27 @@
 # SpringBoot-framework
 myself frame
 
+“flatMap”类似于把一个记录拆分成两条、三条、甚至是四条记录,例如把一个字符串分割成一个字符数组。
+
+“Filter”就类似于过滤。
+
+“keyBy”就等效于SQL里的group by。
+
+“aggregate”是一个聚合操作，如计数、求和、求平均等。
+
+“reduce”就类似于MapReduce里的reduce。
+
+“join”操作就有点类似于我们数据库里面的join。
+
+“connect”实现把两个流连成一个流。
+
+“repartition”是一个重新分区操作（还没研究）。
+
+“project”操作就类似于SQL里面的snacks（还没研究）。
+
+常见的操作有filter、map、flatMap、keyBy(分组)、aggregate(聚合)
+ 具体的使用方式后面的例子中会体现。
+
 
 
 ### 编写程序
