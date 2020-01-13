@@ -1,0 +1,172 @@
+
+MapReduce框架分析数据（内核）
+    - input     ———— 框架本身
+        输入数据，读取要处理的数据
+        一行一行的读取数据
+            key: 偏移量
+            value:每一行的值
+        hadoop spark hadoop hadoop hdfs
+                    |
+                    |
+        <0, hadoop spark hadoop hadoop hdfs>            
+    - map(key, value)   ----- 关心的是value的值
+        依据具体的业务逻辑进行编码
+        比如：词频统计
+            对value进行分割，得到每个单词
+        <hadoop, 1>
+        <spark, 1>
+        <hadoop, 1>
+        <hadoop, 1>
+        <hdfs, 1>
+-------------------------------------------------------------
+    - Shuffle     ———— 框架本身
+        - partition
+            分区的个数等于Reduce Task个数
+        - sort
+        - group
+        上面三个操作都map()输出的(key,value)数据中的key有关系
+map output
+>> 内存
+    默认情况：100MB
+    环形缓冲区
+    当内存80MB(80%)默认情况下，将会将内存中的数据spill到本地磁盘中
+        （溢出到Map Task所运行的NodeManager机器的本地磁盘中）
+>> spill磁盘
+    并不是立即将内存的数据溢写到本地磁盘，而是需要经过一些列操作。
+    >>> 分区partitioner  
+        依据此MapReduce Job中Reduce Task个数进行分区  
+        决定map输出的数据，被哪个reduce任务进行处理
+        默认情况下，依据Key采用HashPartitioner
+    >>> 排序sort
+        会对分区中的数据进行排序，默认情况下依据Key进行排序
+    >>> spill溢写
+        将分区排序后的数据写到本地磁盘的一个文件中
+反复上述操作，当map()处理数据结束以后，此时需要将spill到本地磁盘的文件进行一次合并。
+>> merge合并
+    >>> 各个分区的数据并在一起
+    >>> 排序操作
+    最后形成一个文件，分区完成的，并且各个分区中数据已经进行了排序
+reduce input
+    >>> copy map datas
+        当MapTask处理数据以后，告知ApplicationMaster，然后AppMaster告知所有的ReduceTask；各个Reduce Task主动到已经完成的Map Task的本地磁盘中，去拉去属于自己要处理的数据。
+            每个Reduce Task到所有的MapTask输出数据中拉去数据，很多很多，此过程类似于Map输出过程，简单化：
+            - 合并：各个MapTask拉去的数据
+            - 排序：按照Key进行排序
+        当拉去完所有的MapTask中的数据以后（并且合并和排序以后），将对数据进行分组group：
+            将相同key的value值合在一起,形成(key, list(value)),将此key/value对的数据传递给reduce()函数进行处理。
+-------------------------------------------------------------
+    - reduce(key, list(value))
+        依据具体的业务逻辑进行编码
+        比如：词频统计
+            对list(value)中的值感兴趣，获取累加和
+    - output     ———— 框架本身
+        输出数据，将reduce()聚合后的数据进行输出
+        key和value格式
+            每一个(Key, value)对写入到文件中的一行数据，使用制表符隔开
+
+
+Shuffle：
+    map()输出 到 reduce()输入之前，此阶段过程统一称为shuffle
+    - 第一点：
+        将每个map()函数输出的数据进行打乱，重新分配reduce函数进行处理
+    - 第二点：
+        - Map Phase Shuffle
+        - Reduce Phase Shuffle
+    - 第三点：
+        两个可选项，用于优化MapReduce程序，提升性能(运行快了)
+第一个：Combiner
+    - 字面意思，就是合并，实际上确确实实的是合并的操作
+    - 发生在哪里呢？？？
+        发生在Map Shuffle中，又称为map端的reduce操作，在map端进行一次聚合操作，合并一些数据。
+    - 合并以后：
+        - 减少map输出的数据到本地磁盘中，磁盘IO
+        - 减少reduce拷贝的数据量，减轻网络IO
+    - 然而，并不是每个MapReduce程序都可以拥有的配置
+    - 如果设置combiner以后
+        map -> combiner -> reduce
+第二个：Compress
+    - 字面意思为：压缩
+    - 就是在map最终将数据写入到本地磁盘的时候进行压缩
+    比如：
+        未压缩 map输出：200MB          压缩以后snappy后：80MB
+        - 此时向磁盘中写入的话，80MB块， 磁盘IO
+        - 另外ReduceTask到拷贝数据的时候，数据量减少了， 网络IO
+    - 任何程序都可以设置
+        但是依据实际而定，压缩消耗的是CPU，也需要一定时间，测试
+    - 此处设置压缩针对的是
+        map output 输出的结果数据进行压缩
+
+==============================================
+在MapReduce程序中默认的情况下，Reduce Task的数目为1；
+    - 第一点：实际的输出处理中，必须要设置Reduce Task数目
+        尤其针对数据量大的情况下
+        到底设置多少呢？？？？
+            - 依据经验初步设置
+            - 测试
+    - 第二点：可以将ReduceTask设置为0
+        此时就表示整个MapReduce Job仅仅只有MapTask，没有Reduce Task。
+    比如：
+        仅仅使用MapReduce并行计算功能，对数据进行转换操作，不需要聚合。
+        后面的HBase（基于HDFS之上的数据库）中表中数据转换的时候
+    此时输出到文件中：
+        ReduceTask：
+            part-r-00000
+            part-r-00001
+            part-r-00002
+        MapTask
+            part-m-00000
+            part-m-00001
+            part-m-00002
+        当ReduceTask的个数设置为0的时候，Combiner设置也为不存在。
+
+MapReduce框架分析数据
+    分而治之，分在于Map，合在于Reduce。        
+
+==============================================================
+    在Eclipse中提交MapReduceApplication到YARN上，在Eclipse进行调试代码。如果成行代码没有编译打成JAR包肯定不行的。
+
+配置HDFS或者YARN
+    - *-default.xml配置文件
+        很多属性，每个属性都有自己的默认值
+    - *-site.xml配置
+        用户依据需要配置属性的值
+    启动服务的时候HDFS（NameNode、DataNode）及YARN（RM、NM）读取配置。
+其实：
+    在配置文件的属性来说，不一定所有的属性都是给服务Server读取的，有的是给Client读取的。
+        Client访问HDFS文件系统，就要知道NameNode在那台机器，端口号是多少，方便连接访问数据。
+            defaultFS:  file:/// -> local filesystem
+                        hdfs://xxx:8020  ->hdfs 
+
+=================================================================
+
+Zookeeper
+    - 在整个大数据技术生态系统中地位很重要
+        使得大数据分布式框架更加高可用性
+    - 分布式系统架构中，非常的关键
+        很多很多分布式框架都或多或少的使用Zookeper框架
+    - 掌握：
+        - 单机环境安装
+        - 分布式环境安装
+        - client命令行简单使用
+    - Zookeeper分布式框架
+        节点个数为奇数个2N+1
+    - Zookeeper Server
+        两种角色：   
+            - Leader
+            - Flower
+    - 数据结构
+        与文件系统类似，每个节点称为ZNode节点
+    - 启动ZK
+$ bin/zkServer.sh start
+$ bin/zkServer.sh status
+JMX enabled by default
+Using config: /opt/modules/zookeeper-3.4.5/bin/../conf/zoo.cfg
+Mode: standalone
+    - Client 
+        $ bin/zkCli.sh -server bigdata-training01.hpsk.com
+
+    - 对于配置Zookeeper集群来说
+        要求集群中各个服务器的时间一定要同步，这个是非常关键的一点。
+        发现没有一个命令可以启动所有的ZK Cluster中服务
+            一键启动
+        可以自己编写脚本

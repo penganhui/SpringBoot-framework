@@ -1,0 +1,10 @@
+create schema db_gupao_springboot collate utf8mb4_0900_ai_ci;
+use db_gupao_springboot;
+create table t_user
+(
+	id int not null
+		primary key,
+	username varchar(50) not null,
+	password varchar(50) not null,
+	number varchar(100) not null
+);

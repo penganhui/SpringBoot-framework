@@ -1,0 +1,428 @@
+
+学习Hadoop 2.x时候
+    - 大数据框架基础框架
+        - 基础：环境-如何安装，理解安装部署
+            对于其他大数据框架来说基础
+        - 思想：分布式(并行)处理海量数据方式
+            分而治之的思想
+            也在海量数据存储方面，HDFS
+        - 企业平台中大数据环境
+            高级理解
+    - 对于Hadoop框架的使用
+        不会太多接触到底层开发使用，更多的使用的建立在Hadoop之上的框架，为我们提供更加方便的使用，性能更加的好。
+        知其然知其所以然
+
+对于使用JAVA语言编程的都知道
+    *.java  -> *.class -> *.jar 运行JAR包  
+    Maven 进行编译打包
+
+
+培养能力：
+    -1, 自我学习能力
+        如何自己学习一个新的东西，比如大数据技术中的某个框架
+    -2, 解决问题能力
+        问题(错误信息) -> 分析  -> 方案 -> 测试
+    -3, 相互沟通能力
+        分享，沟通
+
+
+学习大数据技术基础：
+    - Java
+        JAVA SE(必须)
+        JAVA WEB(更好)
+        大数据技术框架95%都与Java语言有关系，使用JAVA语言编程的框架
+    - SQL
+        分析数据，对于传统的分析数据工具来说，更多的使用SQL（数据库）
+        提供基于SQL之上的大数据框架（引擎）
+            Hive：
+                SQL  ->   Hive  -> MapReduce程序,运行在YARN上
+        与MySQL数据库中的DDL、DML及DQL类似
+    - Linux 系统
+        所有的大数据技术框架在企业中都是运行在Linux操作系统
+
+
+2016年的贵阳市召开的数博会，李克强总理：
+    大数据就是一座钻石矿，人在干，数在转，云在算。
+
+    原始数据　-> 清洗，过滤，筛选，转换 -> ETL数据　-> 分析
+
+1PB = 1024 TB
+
+
+=================================================
+
+海量数据   ->   存储数据     -> 分析数据  
+
+
+Hadoop 诞生：
+    大数据框架，分析数据
+    - 存储数据
+        HDFS 分布式文件系统
+    - 分析数据
+        分布式计算 
+            分析数据程序应用也是越来越多，运行需要资源（分布式）
+    - 管理应用
+        分布式资源的管理
+            管理分布式集群的资源和应用的调度
+
+Apache Hadoop
+    开源版本
+    http://hadoop.apache.org/
+    注意：
+        在实际企业使用中，往往不会使用Apache 开源的版本
+    企业版本：
+        Cloudera：
+            CDH 5.x/CM5.x 
+            在企业中使用最为广泛最早比较好用的
+        Hortonworks：
+            HDP 2.x 
+            逐渐在企业的广泛的使用
+
+Apache 
+    软件基金会
+    http://apache.org/
+    如果你的软件的开源，放到Apache网站上。
+    顶级项目：
+        xxx.apache.org 
+    大数据技术框架95%以上都是Apache顶级项目。
+    官方网址：
+        hadoop.apache.org
+        hive.apache.org
+        spark.apache.org 
+        zookeper.apache.org 
+
+=====================================================
+分布式？？？？
+    相对一词：集中式
+    集中式：
+        一台计算机：将所有的东西都放在此计算机上。
+    分布式：
+        多台计算机：将东西进行划分，每台计算机都进行存放一部分。
+
+对于大大数据：
+    分布式：涉及到多台机器（服务器：一台计算机，比使用的电脑配置好）
+    电脑：
+        数据分析所需资源：
+            - CPU，处理器，核数，处理很快
+            - 内存，存储数据
+        数据存储所需资源
+            - 硬盘，存储数据，很慢
+The project includes these modules:
+    - Hadoop Common: The common utilities that support the other Hadoop modules.
+        公共的工具，用于支持其他模块，比如分布式存储和计算
+    - Hadoop Distributed File System (HDFS™): A distributed file system that provides high-throughput access to application data.
+        存储数据：分布式存储，数据以文件的格式进行存储，应用访问数据的高吞吐量。
+    - Hadoop YARN: A framework for job scheduling and cluster resource management.
+        分布式框架：集群集群资源管理和调度任务（Jobs）
+    - Hadoop MapReduce: A YARN-based system for parallel processing of large data sets.
+        分布式并行计算框架（hadoop 2.x之前），并行数据处理模型。
+
+记住：
+    分布式概念
+    主从架构：
+        主节点：
+            NameNode：管理者
+        从节点：
+            DataNodes
+类比：开发一个JAVA 相关项目
+    负责人：
+        项目经理
+    干活的：
+        开发人员，码农，码畜        
+
+
+对于YARN框架来说（Hadoop 2.x)
+    分布式：资源，任务调度
+    主节点：
+        ResourceManager：管理整个集群的资源（CPU CORE和Memory）
+            接收Client提交的应用
+    从节点：
+        NodeManager：每个节点的资源管理（CPU CORE和Memory）
+    对运行在YARN集群上的应用来说，给每个应用启动应用管理者ApplicationMaster，用于管理这个运行应用的情况：
+        - 应用中Task资源申请
+        - 监控Task运行状况
+        - Task运行失败需要进行调度运行和处理
+    容器Container：
+        封装了运行Task任务的所需资源（CPU CORE和Memory等）
+        空间，目的为了隔离型，不让其他Task使用它的资源
+    YARN:
+        系统平台，数据平台，可以在其运行各个各样的分布式应用
+            - MapReduce 
+            - Spark
+            - Storm
+            - Flink (大数据框架：分布式流式计算框架)
+            - .......
+
+MapReduce框架：
+    思想：分而治之
+    核心：
+        Map： 分
+            并行处理数据，将数据分割，一部分一部分的处理
+        Reduce ：合
+            将Map处理的结果进行合并，包含一些业务逻辑在里面
+
+MapReduce 应用运行在YARN框架上
+    -1, Client 向YARN主节点ResourceManager提交应用
+    -2, RM将在某个NodeManager节点上启动一个Container运行AppMaster
+    -3, AppMaster向RM请求资源，为了运行MapReduce中的Task
+        RM将分配NM上的资源，告知AppMaster
+    -4, AppMaster联系NMs，启动对应的Container运行相关的Task
+    -5, 运行的Task会实时向AppMaste进行运行汇报，来监控应用
+    -6, 当所有的Task运行完成以后，AppMaster告知RM，销毁AppMaster
+
+在企业中一般HADOOP集群环境来说：
+    将DataNode和NodeManager放在同一台机器上
+        DataNode：使用机器磁盘空间存储数据
+        NodeManager：将使用机器的CPU Core和Memory分析数据
+
+对于Hadoop框架来说：
+    安装部署模式：
+        -第一种：Local Mode：
+            本地模式，为了MapReduce程序的开发和测试
+            没有HDFS文件系统：处理的数据存储在本地文件系统Local FS
+            也没有YARN集群资源管理：程序运行在JVM Process中，分析数据的所有MapTask和Reduce Task都是运行在此JVM Process中。
+        -第二种：Pseudo-Distributed Mode
+            伪分布式 模式：此模式下仅有一台机器
+            将HDFS和YARN所有的服务进程都运行在一台机器
+            HDFS文件系统、YARN集群资源管理
+            为了MapReduce程序的开发和测试
+        -第三种：Fully-Distributed Mode
+            完全分布式模式，实际企业环境测试和生成运行。
+在企业中实际发的大数据平台来说
+    - 单个集群：20台 - 2000 台
+    - 数据存储量：几十TB - 几十PB
+    - 日增数据量：几十GB - 二十TB
+    - MR程序Job数量：运行上百甚至上千上万
+    注意：
+        从目前企业使用大数据技术分析数据来看，处理的数据往往是最近7天的数据比较多，尤其是最近三天数据。
+        数据处理的实时性要很高，随着时间的迁移，数据产生的时间越早，价值越少。
+
+-#、下载HADOOP
+    https://archive.apache.org/dist/hadoop/common/
+    下载版本为Apache Hadoop 2.5.0版本
+        https://archive.apache.org/dist/hadoop/common/hadoop-2.5.0/
+    源码包：
+        hadoop-2.5.0-src.tar.gz
+        https://archive.apache.org/dist/hadoop/common/hadoop-2.5.0/hadoop-2.5.0-src.tar.gz
+    编译包：
+        hadoop-2.5.0.tar.gz
+        https://archive.apache.org/dist/hadoop/common/hadoop-2.5.0/hadoop-2.5.0.tar.gz
+
+下载系统自带的JDK
+$ sudo rpm -qa|grep java
+java-1.6.0-openjdk-1.6.0.0-1.50.1.11.5.el6_3.x86_64
+tzdata-java-2012j-1.el6.noarch
+java-1.7.0-openjdk-1.7.0.9-2.3.4.1.el6_3.x86_64
+$ sudo rpm -e --nodeps java-1.6.0-openjdk-1.6.0.0-1.50.1.11.5.el6_3.x86_64 tzdata-java-2012j-1.el6.noarch java-1.7.0-openjdk-1.7.0.9-2.3.4.1.el6_3.x86_64    
+
+由于HADOOP框架基于JAVA语言开发的，所以首先要按照JDK。
+    - 使用系统的rz命令上传JDK
+    - 赋予执行权限
+        $ chmod u+x jdk-7u67-linux-x64.tar.gz
+    - 解压
+        $ tar -zxf jdk-7u67-linux-x64.tar.gz
+    - 配置环境变量
+        $ sudo vi /etc/profile
+        增加内容：
+            # JAVA_HOME
+            export JAVA_HOME=/opt/modules/jdk1.7.0_67
+            export PATH=${PATH}:${JAVA_HOME}/bin
+    - 使其生效
+        $ source /etc/profile
+    - 验证：
+        $ java -version
+
+讲解HADOOP学习环境Linux目录结构：
+    $ tree -L 1 /opt/
+    /opt/
+    ├── cdh-5.3.6       # 表示的是使用CDH 5.3.6版本的HADOOP版本框架
+    ├── datas           # 表示的是测试数据存储本地目录
+    ├── modules         # 表示的是APACHE版本大数据框架安装目录
+    ├── softwares       # 大数据框架的软件，*.tag.gz包
+    ├── tools           # 安装eclipse和IDEA集成开发环境的包
+    └── workspaces      # IDE工作空间目录
+    备注：
+        一切使用普通用户hpsk进行操作，上述的/opt目录下所有子目录的拥有者和所属组为hpsk。
+
+安装Linux系统下的两个RPM工具包，方便操作
+    目录结构tree、上传和下载rz/sz
+    使用FTP工具将软件rpm包放入到/home/hpsk目录下，赋予执行权限
+        $ chmod u+x *.rpm 
+    执行安装：
+        $ sudo rpm -ivh *.rpm
+    检验安装：
+        $ which tree
+            /usr/bin/tree
+        $ which rz
+            /usr/bin/rz
+   
+安装伪分布式步骤
+1、解压hadoop安装包到指定目录下
+    # 给予执行权限
+    $ chmod u+x hadoop-2.5.0.tar.gz 
+    # 解决
+    $ tar -zxf hadoop-2.5.0.tar.gz -C /opt/modules/
+2、清理目录
+    # 为了节省虚拟机空间，建议删除doc文档${HADOOP_HOME}/share/doc
+    $ rm -rf /opt/modules/hadoop-2.5.0/share/doc
+3、修改etc/hadoop/*-env.sh 三个文件，指定JAVA安装路径
+    # 给予执行权限
+    $ chmod u+x etc/hadoop/*-env.sh
+    修改配置
+        hadoop-env.sh 
+        yarn-env.sh
+        mapred-env.sh  
+    内容：
+        export JAVA_HOME=/opt/modules/jdk1.7.0_67
+注意：
+    对于HADOOP分布式架构框架来说，主节点和从节点都是JVM Process 
+    HDFS:
+        NameNode \ DataNodes
+    YARN:
+        ResourceManager \ NodeManager 
+
+4、配置HDFS文件系统
+    - 修改core-site.xml
+        用户自定义配置文件
+指定文件系统为HDFS及NameNode主节点所运行的机器和端口
+	<property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://bigdata-training01.hpsk.com:8020</value>
+    </property>
+指定HDFS文件系统的本地的临时目录,默认值为当前系统的/tmp
+    <property>
+        <name>hadoop.tmp.dir</name>
+        <value>/opt/modules/hadoop-2.5.0/data/tmp</value>
+    </property>
+    创建对应的目录：
+        $ cd /opt/modules/hadoop-2.5.0
+        $ mkdir -p data/tmp
+    - 修改hdfs-site.xml文件
+HDFS文件系统是以block形式存储数据的，将上传到HDFS上的文件分为很多block，每个block的大小最大为128MB（默认值），每个block的副本数为3块，也就说存储在HDFS的数据，有3份，实际分布式环境中是存储在不同的机器上的，保证数据安全性，此外另一个保证数据安全性的措施为：每个block存储时都有一个metadata文件，由于检测block数据是否损坏的。
+    由于伪分布式部署，只有一台机器，所以block副本数为3没有任何意义，调整为一个副本即可。
+    <property>
+        <name>dfs.replication</name>
+        <value>1</value>
+    </property>   
+    - 配置slaves文件，指明DataNodes节点运行机器
+        bigdata-training01.hpsk.com
+        说明：此文件中一行即代表一个主机名称，多个机器就写多行。
+5、启动测试HDFS
+    - 格式化文件系统
+        $ bin/hdfs namenode -format 
+        类似于U盘或者移动硬盘使用前进行格式化操作
+出错：
+    17/05/29 18:28:18 INFO namenode.NNConf: Maximum size of an xattr: 16384
+17/05/29 18:28:20 WARN net.DNS: Unable to determine local hostname -falling back to "localhost"
+java.net.UnknownHostException: bigdata-training01.hpsk.com: bigdata-training01.hpsk.com
+    分析：
+        主机名bigdata-training01.hpsk.com与/etc/hsots中配置的映射名称bigdata.training01.hpsk.com对不上，重新配置。
+    - 启动服务
+        主节点NameNode：
+            $ sbin/hadoop-daemon.sh start namenode
+        从节点DataNodes：
+            $ sbin/hadoop-daemon.sh start datanode
+        验证：
+            $ jps
+            3239 DataNode
+            3342 Jps
+            3163 NameNode
+        NameNode主节点进程提供WEB UI监控页面
+            http://namenode:50070/
+特别说明：
+    大家一定要按照顺序操作，出错并不可怕，可怕的是不看日志信息。
+    - 测试文件系统
+        $ bin/hdfs dfs 
+        # 创建目录
+        $ bin/hdfs dfs -mkdir -p conf/tmp  # 相对路径
+        ## 上述命令实际上在创建此/user/hpsk/conf/tmp目录，说明相对于/user/hpsk目录而言创建的。【当前用户的主目录】
+        $ bin/hdfs dfs -mkdir -p /datas/test  # 绝对路径
+        #上传文件
+        $ bin/hdfs dfs -put etc/hadoop/core-site.xml conf/tmp/
+        # 读取文件的内容
+        $ bin/hdfs dfs -text /user/hpsk/conf/tmp/core-site.xml
+        # 下载文件
+        $ bin/hdfs dfs -get /user/hpsk/conf/tmp/core-site.xml get-core.xml
+        $ 删除文件
+        $ bin/hdfs dfs -rm -r /user/hpsk/conf/tmp/core-site.xml 
+    此时发现HDFS提供的命令行操作DFS系统的命令与Linux下命令差不多。
+
+一个文件存储到HDFS上的时候，按照block存储
+    文件名称（目录) -> 对应的block名称 -> DataNodes  元数据信息NameNode
+
+YARN on Single Node
+5、配置YARN集群
+    配置yarn-site.xml文件，指定RM运行的主机
+        <property>
+            <name>yarn.resourcemanager.hostname</name>
+            <value>bigdata-training01.hpsk.com</value>
+        </property>
+    配置MapReduce程序运行在YARN上，要配置YARN上支持MR运行
+        <property>
+            <name>yarn.nodemanager.aux-services</name>
+            <value>mapreduce_shuffle</value>
+        </property>
+    注意，对于YARN中从节点NodeManagers运行的节点配置与HDFS中DataNodes在同一台机器中，配置文件为${HADOOP_HOME}/etc/hadoop/slaves
+6、启动YARN进程
+    主节点ResourceManager:
+        $ sbin/yarn-daemon.sh start resourcemanager
+    从节点NodeManagers:
+        $ sbin/yarn-daemon.sh start nodemanager
+    验证：
+        $ jps   # 此命令属于JDK自带的，查看运行JAVA Process 
+    提供WEB UI监控页面端口号为8088
+        http://resource-manager:8088
+
+ 回顾：
+    - HDFS：
+        存储数据
+    - YARN：
+        运行程序
+    - MapReduce 
+        分析数据，处理存储在HDFS上的数据，运行在YARN集群资源上。 
+
+在大数据分析领域中 任何新的大数据分布式分析框架的第一个程序是
+    词频统计WordCount
+        统计文件中所含单词的出现次数。
+    MapReduce程序中也是如此，统计某个文件中单词出现次数。
+HADOOP官方本身自带程序，可以直接进行运行测试。
+- 准备数据
+    $ bin/hdfs dfs -mkdir -p /datas/mapreduce/wordcount/
+    $ bin/hdfs dfs -put wc.input /datas/mapreduce/wordcount/
+- 运行程序
+    HADOOP自带ExampleJAR包所在目录
+        /opt/modules/hadoop-2.5.0/share/hadoop/mapreduce
+    JAR文件
+        hadoop-mapreduce-examples-2.5.0.jar
+    命令：
+$ bin/yarn jar share/hadoop/mapreduce/hadoop-mapreduce-examples-2.5.0.jar  wordcount
+Usage: wordcount <in> [<in>...] <out>
+提示：
+    需要一个输入目录或者文件，还有一个输出目录或者文件
+    既然要分析数据，告知分析的数据在哪里？分析后的结果存储哪里？
+bin/yarn jar share/hadoop/mapreduce/hadoop-mapreduce-examples-2.5.0.jar  wordcount /datas/mapreduce/wordcount /datas/mapreduce/wc-output
+上述可以发现：
+    Job运行在Local Mode，读取HDFS上的的数据。
+17/05/29 19:42:42 INFO mapreduce.Job: Job job_local586009578_0001 completed successfully
+
+如果运行在YARN上，配置如下：
+    配置mapred-site.xml文件，下面属性默认值为local：
+    <property>
+        <name>mapreduce.framework.name</name>
+        <value>yarn</value>
+    </property>
+再次运行，注意结果输出目录不能够存在：
+bin/yarn jar share/hadoop/mapreduce/hadoop-mapreduce-examples-2.5.0.jar  wordcount /datas/mapreduce/wordcount /datas/mapreduce/wc-output2
+验证，查看统计结果；
+$ bin/hdfs dfs -text /datas/mapreduce/wc-output2/part*
+
+作业:
+    - HADOOP 介绍了解
+        HDFS、YARN、MapReduce
+    - HADOOP 伪分布式环境
+        - 基础
+        - HDFS
+        - YARN
+        - MapReduce
+    - 细节问题
+

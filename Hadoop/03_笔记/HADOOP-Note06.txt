@@ -1,0 +1,157 @@
+
+
+Hadoop 1.x与Hadoop 2.x
+    - 分布式文件系统
+        1：单节点故障，分布式存储数据
+        2：高可用性
+            HDFS HA：Active NameNode/Standby NameNode 
+            HDFS Federation：联盟，多个NameNode，管理不同元数据
+    - MapReduce
+        1：分布式框架
+            - cluster resource management
+                集群资源管理：主节点->JobTracker 从节点->TaskTrackers
+            - data processing
+                并行计算框架，分而治之的思想，程序提交到本身框架中
+        2：分割职责
+            - YARN ：
+                cluster resource management
+                对于运行YARN上的每个Application来说，都有一个AppMaster
+                重点：
+                    可以将各种各样的应用程序运行在YARN上。
+                容器Container
+                    运行的Task放在容器，资源隔离
+            - MapReduce    
+                data processing
+                并行计算编程模型
+
+ResourceManager
+    - 8088：
+        WEB UI监控页面端口号，方便Client查看YARN上资源及应用情况
+    - 8032：
+        bin/yarn jar xx.jar aa.bb.zz.Class 
+        Client向YARN提交应用程序运行的时候，连接YARN的端口号。
+
+YARN 资源管理系统
+    最重要最基础功能：
+    - 资源调度
+    - 资源隔离
+
+YARN来说的，默认情况下，对每个NodeManager的资源设置为多少？
+    NodeManager 所在的机器有多少资源给NodeManager进行关联和使用呢？？
+    默认值：
+        CPU：8 Core
+        Memory：8 G
+    既然运行Hadoop框架，用于大数据分析，机器的配置应该比较好的，多分配资源，以便MapReduce等程序的运行。
+
+YARN中对CPU进行封装处理
+    虚拟CPU
+    考虑到不同的类型CPU处理数据能力不同
+    intel i3            intel i5        intel i7 
+    3个i3处理器
+    2个i5处理器
+
+关于配置属性的值
+    -1, 命令行
+        bin/yarn jar -D<property=value> -D<property=value> -D<property=value> xxx.jar cccc.cccc.Class 
+    -2, 程序中
+        main：
+            Configuration conf = new Configuration();
+            conf.set("", "")
+    -3, *-site.xml
+        etc/hadoop
+    -4, *-defualt.xml
+        属于属性默认配置
+
+YARN中资源的调度
+    将资源分配给要运行的Application。
+    按照队列方式进行调度的，将资源放到队列中，指定app运行在哪个队列中。
+
+Apache中有个框架，将分布式应用运行在YARN上。
+    http://slider.incubator.apache.org/
+
+
+===============================================================
+MapReduce Join
+    - Join
+        从数据库中来的，数据库中有两张表
+            雇员表emp: deptno
+            部门表dept：deptno\dname
+        当分析emp数据的时候，想知道对应的员工所在的部门的名称    
+    - 对于MapReduce程序来说
+        处理数据有两类
+            - 一类文件的数据为：emp.txt
+            - 一类文件的数据为：dept.txt 
+    - MapReduce Join的实现有多种当时
+        - 第一种方式：Map Join
+        - 第二种方式：Reduce Join/Common Join/Shuffle Join
+        - 第三种方式：SemiJoin
+
+Shuffle过程中：
+    map输出结果 -> disk
+    reduce输出 -> network
+    耗时，性能低下
+
+
+举例说明：
+两张表(数据文件)
+    - 顾客表       小表数据            几百兆
+        customer
+            cid     cname       telphone
+    - 订单表       大表数据            TB级别的数据
+        order
+            oid     cid     price       pdate
+    - 关联分析
+        Join: 按照cid 进行关联分析
+        结果：
+            oid     cname       price
+
+=======================================================
+MapTask
+    customer.tsv  ->    (cid, cname)
+    order.tsv     ->    (cid, oid + price)
+思路：
+    将要关联的字段作为map()输出的key，其他的值放在value中。
+
+==========================================================
+APP订单：
+    完成下单付款操作
+
+uuid-xx:
+    search-*        datetime
+    detail          datetime 
+    detail          datetime 
+    detail          datetime 
+    submit          datetime
+
+-1, 通过uuid-xx进行分组，找出所有用户的日志信息，datetime升序排序
+    二次排序
+
+在企也的数据分析：大数据
+    - 原始数据清洗过滤
+    - 需求对数据进行分组
+    - 再组对数据进行统计
+    - 对统计的值进行排序（降序较多）
+    - 获取各组内前几个值
+
+XMind 思维导图
+    很好的规划自己
+    http://www.xmindchina.net/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,269 @@
+
+
+几点注意：
+    -1, 默认情况下，map输入(key, value)对格式
+        key：偏移量
+        value: 文件中的每一行的值  -  最关键
+    -2, map -> shuffle(partition，sort，group) -> reduce
+        三个默认的操作的来说，都是框架完成的，都是依赖于Key，对于MapReduce程序的性能优化来说，重点在Key的设计及shuffle的优化。
+        分组：
+            将相同key的value合并一起，隐含key进行比较
+        排序：
+            按照key进行升序排序
+        分区：
+            决定map输出的key/value对发送给哪个reduce进行处理
+    -3, reduce输出结果
+        默认情况下，key和value 作为一行数据进行输出，之间使用制表符分割
+
+======================================================
+MapReduce框架中数据类型
+    - 并没有完全使用Java中自带的数据类型
+        LongWritable        ->      Long 
+        IntWritable         ->      Integer
+        Text                ->      String
+        在于MapReduce并行计算框架，在处理数据的时候，需求反复的进行数据序列化和反序列化操作（从磁盘读取数据，将结果数据写到磁盘中）
+    - 自己定义格式的数据类型
+        所有的数据类型实现一个接口Writable
+        对于MapReduce中Key类型还需要实现比较的功能Comparable
+        - Key： 实现WritableComparable接口
+        - Value：实现Writable
+    - 自定义数据类型
+        比如说，现在Mapper输出的Key需要自定义数据类型，包含两个字段
+            orderId,price
+
+网站指标分析
+    - 电商网站
+        用户访问网站，点击页面（任何网页），后台会产生一条日志记录
+    - 数据
+        网站每个小时产生一个日志文件
+            2015082818
+            2015082819
+    - 浏览量PV
+        需求：统计每日各个省份的PV值  
+        属于WordCount程序的变形
+            Word： 日期_省份  ->  简化的话：省份       
+            Count:  1
+        分析：
+        - 需要获取到provinceId的值
+        - 考虑一点，通过数据发现，有的字段值为空，考虑过滤不合格的数据
+        - 既然是浏览量，肯定点击了网站的网页，必然在日志记录中url字段值不能为空，如果为空就表示肯定没有点击。
+
+===============================================================
+机器配置
+        机器-01           机器-02           机器-03
+内存      2G               1.5G               1.5G
+CPU       1CORE            1CORE              1CORE
+硬盘      30GB             30GB               30GB
+
+克隆以前的虚拟机
+    - 关闭虚拟机中任何服务并且关机
+    - 克隆2台虚拟机
+克隆虚拟机以后，相关操作：
+    三台机器的IP地址和主机名
+        bigdata-training01.hpsk.com     192.168.133.210
+        bigdata-training02.hpsk.com     192.168.133.211
+        bigdata-training03.hpsk.com     192.168.133.212
+1) 修改/etc/udev/rules.d/70-persistent-net.rules 
+    - 删除eth0记录
+    - 修改eth1记录中的eth1 -> eth0
+    - 拷贝MAC地址
+2) 修改/etc/sysconfig/network-scripts/ifcfg-eth0 
+    修改MAC地址
+3) 修改主机名
+    # hostname xxxx
+    # vi /etc/sysconfig/network 
+4) 修改IP地址
+    通过图形界面进行修改
+5) 配置好IP地址与主机名的映射
+    /etc/hosts
+6) 重启系统    
+
+============================================================
+分布式架构
+    HDFS、YARN
+        主节点
+        从节点
+在企业中，在HADOOP框架的设计中，将DataNode和NodeManager放在一台机器上，也就说这台机器即作为DataNode：存储数据，又作为NodeManager:处理数据
+    DataNode：
+        磁盘，将HDFS文件系统上的数据以block的形式存储在本地磁盘
+        存储空间
+    NodeManager： 
+        CPU CORE和Memory
+        计算数据，处理分析数据
+        Container：
+            对于MapReduce程序运行来说，ApplicationMaster、MapTask及ReduceTask任务。
+
+规划一下各个机器上面运行的哪些服务组件：
+            bigdata-training01      bigdata-training01      bigdata-training01
+HDFS
+            NameNode
+            DataNode                DataNode                DataNode
+                                                            SNN
+YARN 
+                                    ResourceManager
+            NodeManager             NodeManager             NodeManager
+MapReduce 
+            MRHistoryServer
+
+==========================================================
+-  各个机器的IP地址和主机名映射
+192.168.133.210  bigdata-training01.hpsk.com  bigdata-training01
+192.168.133.211  bigdata-training02.hpsk.com  bigdata-training02
+192.168.133.212  bigdata-training03.hpsk.com  bigdata-training03
+建议：
+    在如下两个地方进行配置映射
+    - 集群中各个机器的/etc/hosts
+    - 所有客户端机器
+        hosts 比如说本地Windows
+
+注意：
+    由于是分布式集群部署安装，所以要求如下
+        - 系统的普通用户名一致
+            密码可以一致
+        - 软件的安装目录要一致
+            权限及拥有者和所属组必须一致
+        - 只要是分布式的东西，一切的一切的都要一致       
+- 创建安装软件的用户和目录
+    用户:hpsk -> hpsk 
+    目录：/opt/apps 
+        $ sudo mkdir -p /opt/apps
+        $ sudo chown -R hpsk:hpsk /opt/apps/
+- 系统基本的配置
+    关闭防火墙
+    禁用SElinux
+    卸载JDK
+- 最最关键的一件事
+    分布式集群必须要做：集群时间同步
+方式很多：
+    - 联网的情况下：
+        与网络标准时间同步即可
+    - 内网情况下
+        至少可以保证集群的所有集群的时间是同步，但是不一定与标准时间同步
+    集群时间同步：
+        >> 找一台集群作为时间服务器，集群中其他机器与此机器同步时间即可
+bigdata-training01.hpsk.com
+        - 启动ntp时间服务
+            $ sudo service ntpd status
+            $ sudo service ntpd start
+            设置此服务随机器启动而启动
+            $ sudo chkconfig ntpd on 
+        - 配置ntp服务器
+            $ sudo vi /etc/ntp.conf 
+        修改如下：
+            第一处：去掉注释，修改网段
+# Hosts on local network are less restricted.
+restrict 192.168.133.0 mask 255.255.255.0 nomodify notrap    
+            第二处：增加注释
+ # Use public servers from the pool.ntp.org project.
+# Please consider joining the pool (http://www.pool.ntp.org/join.html).
+##server 0.centos.pool.ntp.org
+##server 1.centos.pool.ntp.org
+##server 2.centos.pool.ntp.org
+            第三处：去掉注释
+# Undisciplined Local Clock. This is a fake driver intended for backup
+# and when no outside source of synchronized time is available.
+server  127.127.1.0     # local clock
+fudge   127.127.1.0 stratum 10                              
+        - 设置机器的时间与BIOS系统时间同步
+        $ sudo vi /etc/sysconfig/ntpd
+            首行增加如下内容
+                SYNC_HWCLOCK=yes
+
+    >> 集群中的其他机器，定时与“时间服务器”进行同步时间
+        Linux 定时任务crontab
+    规定：
+        每台机器，每十分钟与时间服务器进行同步
+切换到root用户
+# crontab -e         
+## sync time
+0-59/10 * * * * /usr/sbin/ntpdate bigdata-training01.hpsk.com
+
+    可以直接在机器上执行命令实现时间同步
+    $ sudo ntpdate bigdata-training01.hpsk.com
+
+======================================================
+基于Hadoop 2.x伪分布式环境进行搭建分布式集群环境
+- 安装目录
+    /opt/apps 
+    集群中所有的机器
+- 在集群中的一台机器上，依据规划进行配置
+    拷贝原本伪分布式安装包到/opt/apps目录下
+    $ cp -r /opt/modules/hadoop-2.5.0/ /opt/apps/
+    - HDFS 
+        分布式文件系统
+        NameNode、DataNodes、SecondaryNameNode 
+        hadoop-env.sh core-site.xml hdfs-site.xml slaves
+        操作：
+            删除以前的data/tmp目录，重新创建配置
+    - YARN
+        分布式集群资源管理系统和任务调度
+        ResourceManager、NodeManagers
+        yarn-env.sh  yarn-site.xml slaves 
+    - MapReduce 
+        MRJobHistoryServer
+        mapred-env.sh
+        mapred-site.xml 
+- 分发配置好的HADOOP安装包到集群中其他机器上
+scp -r /opt/apps/hadoop-2.5.0 bigdata-training02.hpsk.com:/opt/apps
+scp -r /opt/apps/hadoop-2.5.0 bigdata-training03.hpsk.com:/opt/apps
+
+- 启动服务及测试
+    - HDFS
+        - 文件系统格式化
+            在NameNode所在机器的上进行执行命令
+            bin/hdfs namenode -format 
+        - 启动
+            NameNode -> DataNodes -> SNN
+        - 测试
+            创建目录
+                bin/hdfs dfs -mkdir -p /datas/tmp 
+            上传文件
+                bin/hdfs dfs -put etc/hadoop/hdfs-site.xml /datas/tmp
+            查看内容
+                bin/hdfs dfs -text /datas/tmp/hdfs-site.xml
+    - YARN
+        - 启动
+            RM -> NM 
+    - MapReduce 
+        - 启动历史服务器
+            MRJobHistoryServer
+        - 测试MapReduce程序
+- 如果是企业集群的话，安装部署启动完毕以后
+    进行基准测试Benhmarking
+        性能测试
+        比如：
+            测试磁盘IO读写能力
+$ bin/yarn jar share/hadoop/mapreduce/hadoop-mapreduce-client-jobclient-2.5.0.jar
+
+=============================================================
+在集群情况下，通常启动某一个服务组件的所有服务
+    - HDFS
+        sbin/start-dfs.sh 
+    - YARN
+        sbin/start-yarn.sh 
+必须要配置各个主节点到从节点SSH无密码登录
+    - 主节点生成一对私钥和公钥
+    - 将主节点的公钥拷贝到其他从节点上
+
+
+
+
+
+
+
+
+分布式集群
+ 基于伪分布式环境安装进行展开
+  规划机器与服务（★★★★☆）
+ HDFS 文件系统
+ YARN “云操作系统”
+ JobHistoryServer 历史服务监控
+ 修改配置文件，设置服务运行机器节点（★★★☆☆）
+ 分发HADOOP安装包至各个机器节点
+ 依据官方集群安装文档，分别启动各节点相应服务
+ 测试 HDFS 、YARN、 MapReduce ，Web UI 监控集群（★★★☆☆）
+ 配置主节点至各从节点 SSH 无密钥登陆
+集群基准测试 （实际环境中必须的）
+
+
+

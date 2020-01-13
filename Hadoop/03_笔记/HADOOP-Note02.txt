@@ -1,0 +1,327 @@
+
+
+回顾一下：
+    - Linux系统基础性配置
+        ip地址、主机名、防火墙、目录以及工具
+    - Hadoop 下载，解压
+        JDK安装与配置
+    - 安装部署
+        HDFS：分布式存储数据
+        YARN：分布式集群资源管理和任务跳读
+        MapReduce：并行计算框架，处理数据
+        ${HADOOP_HOME}/etc/hadoop/
+            - 环境变量配置
+                *-env.sh
+                    hadoop\yarn\mapred
+                *-site.xml
+                    core-site.xml 
+                        defaultFS
+                        data.tmp
+                    hdfs-site.xml 
+                        replication
+                    yarn-site.xml
+                        resoucemanager.host
+                        mapreduce-shuffle
+                    mapred-site.xml
+                        yarn 
+                * slaves
+                    指定集群中DataNodes和NodeManagers运行主机名称
+            启动服务：
+                HDFS、YARN
+            测试：
+                - HDFS Shell 命令
+                    bin/hdfs dfs 
+                        -mkdir -p
+                        -put 
+                        -get 
+                        -text 
+                        -rm -R 
+                - YARN 提交应用运行命令
+                    bin/yarn jar xx.jar xxx.yy.MainClass args
+bin/yarn jar share/hadoop/mapreduce/hadoop-mapreduce-examples-2.5.0.jar  wordcount /datas/mapreduce/wordcount /datas/mapreduce/wc-output2                    
+可以肯定的是大家基本上都会在搭建环境的时候出问题，怎么解决？？？？
+常见问题：
+    - 主机名与IP地址的映射
+        - linux系统：/etc/hosts 
+        - Windows系统：C:\Windows\System32\drivers\etc\hosts
+            http://bigdata-training01.hpsk.com:50070
+    - 防火墙是否关闭
+        $ sudo service iptables status
+        $ sudo service iptables stop
+        $ sudo chkconfig iptables off   #  永久性关闭防火前
+        要禁用SELinux
+        $ sudo vi /etc/sysconfig/selinux
+            disable
+            注意：必须重启生效
+    - HDFS 多次进行格式化操作
+        bin/hdfs dfs namenode -format
+        报错：大概意思是clusterID不一致.... （在启动DataNode的时候）
+        思考：
+            难道你的U盘每次使用都要进行格式化吗？？？？
+    - 其他问题：
+        在安装部署测试过程中出现的问题，皆属于配置问题。
+    法宝(葵花宝典)：
+        查看服务启动日志信息即可。
+
+===========================================================
+SecondaryNameNode
+    从字面上看：第二个主节点NameNode
+    在正常的HDFS运行的情况下，有无SNN都不影响HDFS读写数据。
+讲到一点NameNode启动过程
+    - 第一次启动HDFS服务之前，首先要格式化文件系统
+        生成文件系统的 元数据：初始元数据 -> fsimage文件中
+            / : 根目录
+    - 启动NameNode 服务，属于JVM Process
+        /opt/modules/jdk1.7.0_67/bin/java org.apache.hadoop.hdfs.server.namenode.NameNode
+        读取格式化HDFS元数据fsimage到内存中，方便快速读写操作
+    - 当NameNode启动以后，启动所有的DataNodes节点
+        DataNode也属于一个JVM Process
+            /opt/modules/jdk1.7.0_67/bin/java org.apache.hadoop.hdfs.server.datanode.DataNode
+        启动以后，去连接NameNode，向注册启动，告诉NameNode它存储的block信息。（告诉NameNode存储那些block数据）
+        NameNode将会接收到DataNodes发送快的报告信息。
+    - Client要对HDFS进行操作，读写操作。
+        当client上传很多文件到HDFS系统上，NN元数据信息要增多，放在内存中。其实才是操作记录也会被写入到edits编辑文件中。
+        此时思考一下：随着Client对HDFS不断操作，元数据改变非常非常大，当然编辑记录文件edits文件也是很大的。
+    假设某一时刻，HDFS集群需要进行停止运行，下次启动的HDFS的过程是如何呢
+        - NameNode启动，加载fsimage很快，再去加载edits文件（仅仅记录，加载到内存的时候还需进行操作，相对比较加载fsimage来说，慢很多），由于此原因发现HDFS启动的时候NameNode将会花费很长很长时间。
+    此时SNN作用就体现出来：
+        SNN 在平时HDFS正常运行的时候，就可以在后台偷偷默默无闻的去将最新的fsimage文件和最新一系列的edits文件进行合并成一个新的fsimage文件，并存储到目录中，以方便下次NameNode重启时直接读取最新的fsimage文件和加载最新的edits文件（数据较少，加载较快）
+当然要说的是，现在来说，在企业的生成环境中，Hadoop 2.x以后，都不会启动SNN，为什么呢？？？？因为有了更好的机制完成他的工作。HDFS HA
+在hdfs-site.xml
+     <property>
+            <name>dfs.namenode.secondary.http-address</name>
+            <value>bigdata-training01.hpsk.com:50090</value>
+     </property>
+启动服务：   
+    sbin/hadoop-daemon.sh start secondarynamenode 
+
+==========================================================
+对于Hadoop中各个模块配置来说
+    都有默认配置文件，存储在JAR包中：*-default.xml 
+对于用来说，自定义配置的
+    存储在${HADOOP_HOME}/etc/hadoop/*-site.xml 
+优先级：
+    自定义的配置 >  默认的配置
+比如配置两个属性：
+    DataNodes存储数据的目录
+        系统的根目录/下面挂载磁盘，用于存储数据
+            /data01
+            /data02
+    如何配置呢？？？
+        dfs.datanode.data.dir
+        value：多个目录之间使用逗号隔开
+比如配置NameNode的faimage和edits数据目录
+    属性为dfs.namenode.name.dir\dfs.namenode.edits.dir
+比如：关闭DFS文件系统对用户的权限检查
+    dfs.permissions.enabled（默认值为true)设置为false
+
+=============================================================
+bin/yarn jar share/hadoop/mapreduce/hadoop-mapreduce-examples-2.5.0.jar  wordcount /datas/mapreduce/wordcount /datas/mapreduce/wc-output3 
+
+当MapReduce程序运行在YARN上完成（成功、失败）以后，如果要继续监控观察运行状况的话，需要启动一个MapReduce相关的服务MRJobHistoryServer
+    - 轻量级
+    - 功能：
+        查看运行已经完成的MapReduce作业
+    - 配置：
+        修改mapred-site.xml文件
+        	<property>
+                <name>mapreduce.jobhistory.address</name>
+                <value>bigdata-training01.hpsk.com:10020</value>
+            </property>
+            <property>
+                <name>mapreduce.jobhistory.webapp.address</name>
+                <value>bigdata-training01.hpsk.com:19888</value>
+            </property>
+    - 启动服务： 
+        $ sbin/mr-jobhistory-daemon.sh start historyserver
+
+
+使用MR-Job-History-Server查看MapReduce运行结束以后的日志信息，出现如下日式：Aggregation is not enabled. Try the nodemanager at bigdata-training01.hpsk.com:53122
+分析：
+    日志聚集功能没有进行配置。
+配置yarn-site.xml文件：
+	<property>
+		<name>yarn.log-aggregation-enable</name>
+		<value>true</value>
+	</property>
+	<property>
+		<name>yarn.log-aggregation.retain-seconds</name>
+		<value>604800</value>
+	</property>
+	<property>
+		<name>yarn.log-aggregation.retain-check-interval-seconds</name>
+		<value>86400</value>
+	</property>
+    重启YARN服务组件，方才生效，当然了以前运行的MapReduce程序肯定还是查看的不日志信息，需要最新运行的方可。
+
+对于运行在YARN上的每个应用的ApplicationMaster运行在NodeManager的Container中，日志信息在运行的NM的本地日志目录下。应该讲日志信息上传到HDFS的某个目录下，让MRJobHistoryServer进行直接读取即可。
+
+
+启动HDFS\YARN服务
+    - 方式一：
+        每个服务追一启动
+            sbin/hadoop-daemon.sh
+            sbin/yarn-daemon.sh
+    - 方式二：
+        每个服务组件统一启动,脚本必须运行各个服务中主节点上。
+        HDFS:
+            sbin/start-dfs.sh \ sbin/stop-dfs.sh
+        YARN：
+            sbin/start-yarn.sh \ sbin/stop-yarn.sh
+        - 要求：
+            需要配置主节点到各个从节点的SSH无秘钥登录。
+                SSH属于连接一种安全认证协议，配置远程登录无需输入密码。
+        - 配置如下：
+            - 在主节点上，生成一对公钥/私钥对
+                $ ssh-keygen -t rsa  # 敲四个回车符即可
+            - 需要将主节点上生成的公钥拷贝到所有的从节点上，也包括自身节点上
+                命令用法：
+                ssh-copy-id [-i [identity_file]] [user@]machine
+                拷贝：
+                $ ssh-copy-id bigdata-training01.hpsk.com
+
+=============================================================
+$ bin/hdfs dfs -ls /
+17/05/29 23:32:52 WARN util.NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+发现：
+    有一个警告，NativeCodeLoader有问题，然而官方下载的HADOOP Distributed版本中解压后【lib/native】存在本地库，说明一个问题，不适用于现在所有使用的操作系统。
+解决：
+    下载HADOOP源码，针对使用操作系统进行编译生成native库，替换即可。
+检查：
+    $ bin/hadoop checknative
+衍生出一个问题：Hadoop 2.x源码如何编译？？？
+    源码编译真的真的很麻烦很麻烦。
+
+可选作业：
+    可以尝试按照文档在Linux环境进行编译HADOOP源码。
+
+
+=============================================================
+Client时如何访问HDFS上的文件的？？
+    - 读文件数据
+        - Client -> NameNode (内存中存储元数据)
+            知道读取的文件包含哪些block，block存储在哪些DataNodes上
+        - Client -> DataNodes 
+            与DataNodes节点交互，读取存储在DataNode上的block数据
+    - 写文件数据
+        - Client -> NameNode 
+            由NameNode决定将数据分为几个block，并且每个block存在哪些DataNodes上
+        - Client -> DataNodes
+            直接进行交互，写数据到block中，系统磁盘文件中。
+    结论：
+        Client 读取HDFS上的数据，数据流不经过NameNode，只访问它获取文件元数据而已，这也是为什么说Client访问HDFS数据高吞吐量。
+    - NameNode与DataNode如何交互
+        - 发送心跳
+            DataNode以后向NameNode注册，然后每3秒发送一次心跳。
+        - 发送块的报告
+            每一个小时发送一次该DataNode上包含哪些blocks。
+    - 访问HDFS文件系统：
+        - HDFS Shell 
+            命令行
+        - JAVA API
+            调用，在实际项目中接触到API很少，更多的是大数据分析框架底层将会调用API读取HDFS上存储的数据，进行分析数据。我们后面需要学习掌握使用更高层的框架来分析数据。
+        - 作业：
+            可以自学下JAVA API基本使用，读数据和写数据（JAVA SE中IO类似）
+
+===============================================================
+MapReduce框架学习，使用IDE工具为Eclipse，在Linux环境下。
+    - Maven环境
+    - Eclipse
+    - Maven Project 
+    - HDFS JAVA API 
+
+
+===============================================================
+在NameNode启动过程中有个【Safe mode is ON】
+    - NameNode启动以后，包含读取fsimage信息和edits信息，等待DataNodes连接注册并发送各个节点上存储的block报告。
+    - 直到所有的DataNodes发送完block的报告以后，默认情况下将会有30秒的时间作为整个HDFS集群的缓冲，此时间段称为SafeMode.
+        时间段：NameNode启动以后（读取元数据信息） -  block report
+    - 在安全模式的情况下，Client不能对HDFS上的文件进行读写操作。
+    - 比例：
+        NameNode启动的时候读取元数据信息，包含整个HDFS集群存储多少block
+            nn-block-total
+        DataNodes向NameNode汇报各个节点上存储的block信息
+            pre-dn-block-number
+        阈值：
+            SUM(pre-dn-block-number) / nn-block-total > 0.999 
+            离开安全模式
+    - 当需要对HDFS集群进行配置的时候，不希望Client读写文件，进入安全模式
+        $ bin/hdfs dfsadmin [-safemode enter | leave | get | wait]
+
+=======================================================
+MapReduce 
+    并行计算框架，用于对海量数据进行分析
+    - 计算过程抽象为两个函数
+        map函数：分->将数据划分为很多部分，每部分数据Task处理，使用map函数，任务称为Map Task。
+        reduce函数：合 -> 将所有的Map Task分析的结果进行合并，可以包含一些业务逻辑在里面。
+    - 过程：
+input      ->    map()   ->    shuffle    ->    reduce()  -> output 
+要处理的数据     处理数据     框架完成，可以设置    合并函数    输出结果
+    - 数据在整个流程形式
+        (key, value)
+        map():
+            (k1, v1)  => map()  =>  list[(k2, v2)]
+        reduce():
+            (k3, list(v3))  => reduce()  => list[(k4, v4)]
+    - 类比WordCount程序
+        在MapReduce框架中有很多默认设置，也是常用的
+        - map处理的数据
+            从文件中读取数据  => 如何转换为(key, value) 形式数据
+                框架本身完成
+            一行一行的读取数据，转换为key/value对形式
+                k1: 偏移量（这行数据在文件中的偏移量）
+                    0 
+                    31
+                v1: 每行数据内容
+                    hadoop spark hadoop hadoop hdfs
+                    mapreduce spark hadoop hdfs hadoop
+                逻辑：
+                    对每一行数据进行分割（按照空格进行分割），只要出现单词，就表明此单词出现一次(hadoop, 1)(spark, 1)
+                        // TODO 业务实现地方
+        - reduce()
+            聚合操作
+            k3: word -  hadoop 
+            v3: list(value) - list(1, 1, 1),只要对value中值相加即可
+            输出
+                k4: word 
+                v4: v3.sum()
+
+
+MapReduce的程序运行模式
+    - Local Mode 
+        本地启动一个JVM Process，所有的Task（Map Task和Reduce Task）
+    - Cluster Mode 
+        运行在YARN集群上 -> NodeManager:Container 
+            - ApplicationMaster 
+            - Map Task (JVM Process)
+            - Reduce Task (JVM Process)
+
+总结MapReduce编程顺序（以WordCount程序为例）
+    - map
+        static class \extends Mapper<LongWritable, Text, xx, yy>
+            map()
+    - reduce 
+        static class \ extends Reducer<xx, yy, zzz, www>
+            reduce()
+    - driver 
+        - Configuration: *-site.xml 放入classpath下面
+        - Job: name,conf, setJarClass
+        - mapreduce 
+            input  -> map() -> reduce() -> output
+        - submit
+    - reduce的输入其实就是map输出
+        (mapOutputKey = reduceInputKey)
+        (mapOutputValue = reduceInputValue)
+    - 本地测试
+        local mode，业务逻辑实现是否有问题
+    - 打成jar包，运行在YARN上
+        $ mvn package
+        运行的时候指定运行的Class名称
+    - MapTask 有多少个呢？？
+        默认情况下，MapReduce程序处理的数据有多少个block，就有多少个MapTask任务。
+            - 一个block将会给一个MapTask任务进行处理
+            - 一个MapTask处理的数据最多的数据量为128MB。
+
+
+
+

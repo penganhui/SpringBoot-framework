@@ -1,0 +1,151 @@
+
+四方面重点：
+    - HADOOP HA（大数据平台运维）
+        高可用性
+        分布式文件系统HDFS
+        分布式资源管理YARN
+    - MapReduce 高级编程
+        - SecondarySort
+            二次排序（原理）  - Shuffle理解
+        - Join
+            源自SQL中两张表的数据需要进行关联分析
+                等值连接、左连接、右连接、全连接
+            处理两类文件的数据，也需要进行关联分析
+                连接实现方式，性能不同
+    - YARN
+        深入资源管理框架
+            资源管理和分配
+
+现在大数据分析框架越来越来，功能都是分析数据，与MapReduce差不多，但是
+    - 分析数据存储在哪里？
+        HDFS（与文件系统相关）
+    - 分析数据的应用运行在哪里？？
+        YARN（稳定、架构）
+
+
+在企业中HDFS 架构图
+    从正式可用性版本来说:hadoop-2.2.0版本开始
+    - NameNodes
+        2个：
+        - Active NameNode：活动的
+        - Standby NameNode：等待，时刻准备接替Action NameNode工作
+        Client访问HDFS上的数据，首先连接的是NameNode
+    - DataNodes
+        存储数据
+    - JournalNodes
+        个数与Zookeeper一致的，奇数个
+        Journal：日志
+        存储日志信息，对日志进行关联
+        针对NameNode 编辑日志进行关联的
+======= NameNode（Active和Standby）自动的故障转移=========        
+    - FailoverControllers
+        监控（故障转移，容灾）NameNode
+        每个NameNode都需要一个ZKFC去监控运行
+    - Zookeeper集群
+        FC连接到ZK Cluster
+    最终，才能安全保障存储在HDFS 集群中数据不会丢失，提供高吞吐量的数据访问，给数据分析框架进行数据分析。
+
+NameNode
+    存储的是整个文件系统的元数据，加载到内存中去的，本地文件系统备份
+        - fsimage：系统镜像文件
+            当NameNode启动完成以后，会将内存东西写到一个新的fsimage中
+        - edits：编辑日志
+            记录Client对HDFS命名空间的改变
+        内存 = fsimage + edits 
+
+当Client访问HDFS系统的时候，NameNode，当元数据发送变化的时候
+    - 变化记录在 编辑日志文件中
+        edits 
+    此时Standby NameNode可以实时或者定时从edits中读取数据，更新内存
+思考：
+    此时发现，edits文件太重要，不能出现问题，文件损坏，丢失，
+如何保存好编辑日志文件呢？？？？？
+    - 编辑日志存储到  高性能服务器的磁盘中
+    - Cloudera QJM
+        Quorum Journal Manager：分布式 日志 管理
+        对日志文件进行分布式的存储管理：存储到2N+1 （N >= 1整数）      
+
+当Active NameNode宕机以后，不能提供服务，Standby NameNode需要立马进行切换为Action NameNode，以供给Client提供服务（读写数据）
+    如何可以立即做到这件事呢？？？？
+    预警：发送信息，发送邮件
+最好的办法就是自动程序自动的监控检测，当发现的时候，立即进行切换。
+    使用分布式写作框架Zookeeper Cluster
+
+企业中实际的数据分析，程序的运行，往往都在每天的半夜十二点以后开始。
+    要处理的是当天的数据（一整天的数据）
+    第二天需要看到前一天的数据分析报告。
+
+搭建环境配置部署测试
+    - 在分布式集群基础上修改配置
+        - 删除文件(${HADOOP_HOME})
+            logs/* 所有的东西
+            data/tmp/* 所有的东西
+    - HDFS来说
+        - core-site.xml
+        - hdfs-site.xml 
+参考官方文档：
+http://hadoop.apache.org/docs/r2.5.2/hadoop-project-dist/hadoop-hdfs/HDFSHighAvailabilityWithQJM.html
+
+
+	<property>
+		<name>dfs.ha.fencing.methods</name>
+		<value>sshfence</value>
+	</property>
+	<property>
+		<name>dfs.ha.fencing.ssh.private-key-files</name>
+		<value>/home/hpsk/.ssh/id_rsa</value>
+	</property>
+需要配置来个NameNode的机器相互之间的SSH无无秘钥登录
+
+明确三台机器运行服务
+bigdata-training01      bigdata-training02      bigdata-training03
+    NameNode                   NameNode 
+    JournalNode                JournalNode          JournalNode
+    DataNode                   DataNode             DataNode
+
+
+在Hadoop 2.x中关于集群新特性
+    - HDFS HA
+        高可用性，保证数据访问毫无问题
+    - HDFS Federation
+        NameNode主节点
+        有多个主节点，但是彼此各自管理属于自己的元数据，互不干扰
+        NameNode01          NameNode02          NameNode03
+        网站日志数据          网络爬虫数据        数据库记录数据
+        网站统计分析          招聘画像分析        用户推荐分析
+            简单                 复杂              算法
+        DataNode01           DataNode02         DataNode03
+    - YARN 
+        分布式架构，主从节点
+        ResouceManager：单点故障
+        ResourceManager High Availability
+
+在企业的实际环境中，HDFS HA必须配置（测试机群），YARN HA（生成环境必须配置），测试环境可有可无。
+
+
+===============================================================
+a,1
+z,3
+b,2
+a,100
+a,3
+b,1
+
+说过在MapReduce过程中，一致都存在排序，按照Key进行排序操作的。
+    (第一个字段, 第二个字段)
+    group：
+        将相同的key合并在一起
+        (a, list(1, 100, 3))  -> reduce()
+
+二次排序关键点：
+    - 将排序的字段合并到Key中，Key属于MapTask输出的Key。
+    - 要保持原来的分区和分组都是基于Key的，即第一个字段
+
+开发步骤：
+    - 组合Key
+        自定义数据类型，将第一个字段和第二个字段放在一个类型中
+    - 自定义paritioner
+        按照第一个字段进行分区
+    - 自定义分组
+        按照第一个字段进行分组
+
