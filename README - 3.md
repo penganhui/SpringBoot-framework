@@ -69,4 +69,70 @@ public class GroupedProcessingTimeWindowSample {
     }
 }
 ```
+```
 
+package com.huawei.camp.logmeasure.config;
+
+import org.apache.commons.lang3.StringUtils;
+import org.elasticsearch.client.transport.TransportClient;
+import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.transport.TransportAddress;
+import org.elasticsearch.transport.client.PreBuiltTransportClient;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.elasticsearch.core.ElasticsearchTemplate;
+import org.springframework.data.elasticsearch.repository.config.EnableElasticsearchRepositories;
+import org.springframework.stereotype.Component;
+
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 功能描述
+ *
+ * @since 2019-12-27
+ */
+@Component
+@Configuration
+@EnableElasticsearchRepositories(elasticsearchTemplateRef = "alphaElasticsearchTemplate")
+public class AlphaElasticsearchConfig {
+    @Value("${elasticsearch.alpha.cluster-nodes}")
+    private String esClusterNodes;
+
+    @Value("${elasticsearch.alpha.cluster-name}")
+    private String esClusterName;
+
+    @Value("${elasticsearch.alpha.cluster-port}")
+    private int esClusterPort;
+
+    @Bean
+    public TransportClient alphaClient() throws Exception {
+
+        Settings esSettings =
+            Settings.builder().put("cluster.name", esClusterName).put("client.transport.sniff", false).build();
+
+        return new PreBuiltTransportClient(esSettings).addTransportAddresses(getTransportAddresses());
+    }
+
+    @Bean(name = "alphaElasticsearchTemplate")
+    public ElasticsearchTemplate alphaTemplate() throws Exception {
+        return new ElasticsearchTemplate(alphaClient());
+    }
+
+    private TransportAddress[] getTransportAddresses() throws UnknownHostException {
+        List<TransportAddress> list = new ArrayList<TransportAddress>();
+        if (StringUtils.isNotBlank(esClusterNodes)) {
+            String[] urlList = esClusterNodes.split(",");
+            for (String str : urlList) {
+                TransportAddress transportAddress = new TransportAddress(InetAddress.getByName(str), esClusterPort);
+                list.add(transportAddress);
+            }
+        }
+        return list.toArray(new TransportAddress[list.size()]);
+    }
+}
+
+```
