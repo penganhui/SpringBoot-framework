@@ -1,0 +1,753 @@
+一、使用shell脚本批量导入数据到hive的表中
+	-》需求：每天的日志有24个文件，每小时一个，单独放在一个日期文件目录下
+			logs/20170201/2017020100
+			              2017020101
+						  2017020102
+						  2017020103
+		-》通过脚本实现将昨天数据加载到hive的分区表中
+			create database load_hive;
+			use load_hive;
+			create table log_src(
+			id                  string,
+			url                 string,
+			referer             string,
+			keyword             string,
+			type                string,
+			guid                string,
+			pageId              string,
+			moduleId            string,
+			linkId              string,
+			attachedInfo        string,
+			sessionId           string,
+			trackerU            string,
+			trackerType         string,
+			ip                  string,
+			trackerSrc          string,
+			cookie              string,
+			orderCode           string,
+			trackTime           string,
+			endUserId           string,
+			firstLink           string,
+			sessionViewNo       string,
+			productId           string,
+			curMerchantId       string,
+			provinceId          string,
+			cityId              string,
+			fee                 string,
+			edmActivity         string,
+			edmEmail            string,
+			edmJobId            string,
+			ieVersion           string,
+			platform            string,
+			internalKeyword     string,
+			resultSum           string,
+			currentPage         string,
+			linkPosition        string,
+			buttonPosition      string
+			)
+			partitioned by (date string,hour string)
+			row format delimited fields terminated by '\t'
+			stored as textfile;
+		-》编写shell脚本实现
+			-》定义HIVE_HOME
+				HIVE_HOME=/opt/cdh-5.3.6/hive-0.13.1-cdh5.3.6
+			-》昨天的日期也是动态变化的
+			-》动态的读取文件的名称
+			-》在脚本中执行hive的命令
+				-》bin/hive -e ""
+				-》bin/hive -f file_path.sql
+			-》导入命令
+				load data local inpath 'log_file_path' into table log_src partition (date='yesterday_date',hour='hour')
+
+二、复杂日志分析案例
+	-》hive中的常用三个方法
+		-》case when
+			-》第一种
+				case col
+				when value1 then ''
+				when value2 then ''
+				else ''
+				end
+			-》第二种
+				case
+				when col=value1 then ''
+				when col=value2 then  ''
+				else '' 
+				end
+			-》根据部门编号，显示字符串"your part is 10"	
+				select ename ,
+				case deptno
+				when 10 then 'your part is 10'
+				when 20 then 'your part is 20'
+				else 'your part is 30'
+				end part
+				from emp;
+
+				select ename ,
+				case 
+				when deptno='10' then 'your part is 10'
+				when deptno='20' then 'your part is 20'
+				else 'your part is 30'
+				end part
+				from emp;
+		-》cast:用于hive中的数据类型转换
+			-》格式：cast（col as type）s
+				create table caststr as select empno,ename,cast(sal as string) salary from emp;
+		-》unix_timestamp：一种时间格式，记录从1970年1月1日0点0分0秒到目前为止的秒数
+			-》正常企业中使用的格式：yyyy-MM-dd HH:mm:ss
+			-》功能：将标准时间转换为Unix_timstamp，一般用于时间差值的计算
+				select unix_timestamp('2017-01-01 00:00:00') from emp;
+			-》from_unixtime
+				-》功能：与unix_timestamp相反，将unix_timestamp格式转换为标准格式
+	-》复杂的日志分析
+		-》需求指标：
+			日期	UV	PV	登录人数	游客人数	平均访问时长	二跳率	独立IP数
+		-》分析需求：
+			-》日期：按照分区表，进行日期分组即可
+			-》UV：count(distinct guid)
+			-》PV：count(url)
+			-》guid:访客id，不论是不是会员，都有guid
+			-》userid/memberid：登录以后才有会员id，不然就是空
+			-》登录人数：有guid，统计会员id有值的人的个数
+			-》游客人数：有guid，但是会员id为空的人
+			-》会话：
+				-》从进入网站系统开始，开启会话，在服务端会创建session，生成唯一的sessionid
+				-》sessionid：唯一标识一个会话
+				-》会话时长：从进入系统，到离开系统，之间的时间间隔
+				-》平均访问时长：总的会话时长/所有会话的个数
+			-》二跳率：访问页面至少2个或者2个以上的
+				-》反映一个网站内容是否喜迎用户的程度
+				-》二跳率越高，网站越吸引用户
+				-》pv大于2的session的个数/总的session的个数
+			-》独立ip数
+				-》count(distinct ip)
+			-》渠道id
+				-》通过什么样的方式进入该网站
+				-》取每个session中访问的第一页面的记录中的trackU的字段为该session的渠道
+			-》landing_url
+				-》所访问的第一个页面，通过最小时间记录对应的URL为第一个页面
+			-》ref_url
+				-》表示访问第一个页面之前的页面
+				-》一般用于分析用户的来源，通过哪个广告进来，用于运营决策
+		-》数据分析流程
+			-》数据采集
+				-》在hive中创建源表，做分区表
+			-》数据清洗
+				-》对字段进行过滤
+				-》对字段进行格式化
+				
+				-》创建需求表：
+				create table session_info(
+				session_id string ,
+				guid string ,
+				trackerU string ,
+				landing_url string ,
+				landing_url_ref string ,
+				user_id string ,
+				pv string ,
+				stay_time string ,
+				min_trackTime string ,
+				ip string ,
+				provinceId string 
+				)
+				partitioned by (date string)
+				ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' ;
+
+				--------------------------------插入数据------------------------
+
+
+
+				insert overwrite table session_info partition(date='20150828')
+				select
+				a.sessionId session_id,
+				max(a.guid) guid,
+				max(a.endUserId) user_id,
+				count(a.url) pv,
+				(unix_timestamp(max(a.trackTime)) - unix_timestamp(min(a.trackTime))) stay_time,
+				min(a.trackTime) min_trackTime,
+				max(a.ip) ip,
+				max(a.provinceId) provinceId
+				from log_source a where date='20150828'
+				group by a.sessionId;
+
+				trackerU：如何选取第一条记录中trackerU
+				landing_url：如何将第一个页面选取出来
+				landing_url_ref：如何将第一个页面中的上一个URL选取出来
+
+				-------------------------------创建临时表session_tmp-----------------
+				create table session_tmp as
+				select
+				a.sessionId session_id,
+				max(a.guid) guid,
+				max(a.endUserId) user_id,
+				count(a.url) pv,
+				(unix_timestamp(max(a.trackTime)) - unix_timestamp(min(a.trackTime))) stay_time,
+				min(a.trackTime) min_trackTime,
+				max(a.ip) ip,
+				max(a.provinceId) provinceId
+				from log_source a where date='20150828'
+				group by a.sessionId;
+
+				-------------------------------创建临时表track_tmp-------------------
+				create table track_tmp as
+				select 
+				sessionId,
+				trackTime,
+				trackerU,
+				url,
+				referer
+				from log_source where date='20150828';
+
+				---------------------------------对两张临时表进行join-------
+				insert overwrite table session_info partition(date='20150828')
+				select
+				a.session_id session_id,
+				max(a.guid) guid,
+				max(b.trackerU) trackerU,
+				max(b.url) landing_url,
+				max(b.referer) landing_url_ref,
+				max(a.user_id) user_id,
+				max(a.pv) pv,
+				max(a.stay_time) stay_time,
+				max(a.min_trackTime) min_trackTime,
+				max(a.ip) ip,
+				max(a.provinceId) provinceId
+				from session_tmp a join track_tmp b on 
+				a.session_id=b.sessionId and a.min_trackTime=b.trackTime
+				group by a.session_id;
+			-》数据分析
+			
+日期		UV		PV		登录人数  游客人数	平均访问时长		二跳率	独立IP数
+20150828   38985   126134.0  17722   	21329   745.9797393244751       0.5116391114717517   29668
+
+				create table if not exists result3 as 
+				select 
+				date date,
+				count(distinct guid) UV,
+				sum(pv) PV,
+				count(distinct case when length(user_id)!=0 then guid else null end) login_user,
+				count(distinct case when length(user_id)=0  then guid else null end ) visit_user,
+				avg(stay_time) avg_stay_time,
+				count(case when pv>=2 then session_id else null end)/count(session_id) second_rate,
+				count(distinct ip)
+				from session_info
+				group by date;
+				select * from result3;
+			-》数据展示
+				-》通过sqoop将数据导出
+				
+三、hive中文件存储格式
+	-》常见的类型：stored as file_format
+		-》textfile：hive的默认类型
+		-》rcfile
+		-》orc file
+		-》parquet：用的最多的格式
+	-》存储数据方式
+		1	2	3
+		4	5	6
+		7	8	9	
+		-》按行存储
+			1	2	3	4	5……
+		-》按列存储
+			1	4	7	2	5	8	3……
+	-》使用高效的文件格式存储，在数据处理时可以尽量少磁盘和网络的负载
+	-》对比：textfile、orc、parquet
+-》创建源表：
+create table log_test(
+id                  string,
+url                 string,
+referer             string,
+keyword             string,
+type                string,
+guid                string,
+pageId              string,
+moduleId            string,
+linkId              string,
+attachedInfo        string,
+sessionId           string,
+trackerU            string,
+trackerType         string,
+ip                  string,
+trackerSrc          string,
+cookie              string,
+orderCode           string,
+trackTime           string,
+endUserId           string,
+firstLink           string,
+sessionViewNo       string,
+productId           string,
+curMerchantId       string,
+provinceId          string,
+cityId              string,
+fee                 string,
+edmActivity         string,
+edmEmail            string,
+edmJobId            string,
+ieVersion           string,
+platform            string,
+internalKeyword     string,
+resultSum           string,
+currentPage         string,
+linkPosition        string,
+buttonPosition      string
+)
+row format delimited fields terminated by '\t'
+stored as textfile;
+load data local inpath '/opt/datas/2015082818' into table log_test;
+			
+
+-》textfile
+create table log_txt(
+id                  string,
+url                 string,
+referer             string,
+keyword             string,
+type                string,
+guid                string,
+pageId              string,
+moduleId            string,
+linkId              string,
+attachedInfo        string,
+sessionId           string,
+trackerU            string,
+trackerType         string,
+ip                  string,
+trackerSrc          string,
+cookie              string,
+orderCode           string,
+trackTime           string,
+endUserId           string,
+firstLink           string,
+sessionViewNo       string,
+productId           string,
+curMerchantId       string,
+provinceId          string,
+cityId              string,
+fee                 string,
+edmActivity         string,
+edmEmail            string,
+edmJobId            string,
+ieVersion           string,
+platform            string,
+internalKeyword     string,
+resultSum           string,
+currentPage         string,
+linkPosition        string,
+buttonPosition      string
+)
+row format delimited fields terminated by '\t'
+stored as textfile;
+insert overwrite table log_txt
+select * from log_test;
+
+-》orc
+create table log_orc(
+id                  string,
+url                 string,
+referer             string,
+keyword             string,
+type                string,
+guid                string,
+pageId              string,
+moduleId            string,
+linkId              string,
+attachedInfo        string,
+sessionId           string,
+trackerU            string,
+trackerType         string,
+ip                  string,
+trackerSrc          string,
+cookie              string,
+orderCode           string,
+trackTime           string,
+endUserId           string,
+firstLink           string,
+sessionViewNo       string,
+productId           string,
+curMerchantId       string,
+provinceId          string,
+cityId              string,
+fee                 string,
+edmActivity         string,
+edmEmail            string,
+edmJobId            string,
+ieVersion           string,
+platform            string,
+internalKeyword     string,
+resultSum           string,
+currentPage         string,
+linkPosition        string,
+buttonPosition      string
+)
+row format delimited fields terminated by '\t'
+stored as orc;
+insert overwrite table log_orc
+select * from log_test;	
+
+-》parquet
+create table log_parquet(
+id                  string,
+url                 string,
+referer             string,
+keyword             string,
+type                string,
+guid                string,
+pageId              string,
+moduleId            string,
+linkId              string,
+attachedInfo        string,
+sessionId           string,
+trackerU            string,
+trackerType         string,
+ip                  string,
+trackerSrc          string,
+cookie              string,
+orderCode           string,
+trackTime           string,
+endUserId           string,
+firstLink           string,
+sessionViewNo       string,
+productId           string,
+curMerchantId       string,
+provinceId          string,
+cityId              string,
+fee                 string,
+edmActivity         string,
+edmEmail            string,
+edmJobId            string,
+ieVersion           string,
+platform            string,
+internalKeyword     string,
+resultSum           string,
+currentPage         string,
+linkPosition        string,
+buttonPosition      string
+)
+row format delimited fields terminated by '\t'
+stored as parquet;
+insert overwrite table log_parquet
+select * from log_test;	
+
+四、hive中的压缩存储
+	-》hive的压缩存储依赖于Hadoop的压缩
+	-》常见的压缩格式
+		-》snappy、lzo、lz4
+	-》Hadoop中使用压缩的特点
+		-》减少磁盘IO的负载
+		-》减少网络IO的负载
+		-》提升全局的数据处理效率
+		-》压缩算法必须支持可分割性
+			map输出300M：不使用压缩
+				-》分块：block1，block2，block3
+				-》reduce取数据，合并，处理
+			map输出200M：使用压缩
+				-》分块：block1，block2
+				-》reduce取数据，解压缩-》合并，处理
+	-》MapReduce的流程
+		-》input	-》压缩
+		-》map
+		-》shuffle	-》压缩
+			-》spill
+				-》分区：决定了当前的值交给哪个reduce进行处理
+				-》排序：自定义排序，两种方法
+			-》merge
+			-》merge
+				-》排序
+				-》分组：相同key的value变成集合
+		-》reduce	-》压缩
+		-》output
+	-》配置Hadoop的压缩
+		-》bin/hadoop checknative
+		-》配置Hadoop支持snappy
+			-》在Linux中安装snappy库
+				https://github.com/google/snappy
+			-》编译Hadoop-snappy
+				https://github.com/electrum/hadoop-snappy
+				-》hadoop-snappy-0.0.1-SNAPSHOT.jar
+				-》支持snappy的本地库
+			-》编译Hadoop支持snappy压缩
+				-Drequire.snappy
+			-》将jar包放入Hadoop的lib目录下即可
+		-》如果不编译
+			-》直接将提供的编译好的本地库进行替换
+			-》注意版本的区别
+			-》将编译好的本地库里面所有的文件，放入lib/native目录下
+	-》配置MapReduce中map的输出进行压缩
+		-》修改配置项
+			mapreduce.map.output.compress=true
+			mapreduce.map.output.compress.codec=org.apache.hadoop.io.compress.SnappyCodec
+		-》不配置压缩
+		bin/yarn jar share/hadoop/mapreduce/hadoop-mapreduce-examples-2.5.0-cdh5.3.6.jar wordcount /wc/input/ /wc/output
+		-》配置压缩
+		bin/yarn jar share/hadoop/mapreduce/hadoop-mapreduce-examples-2.5.0-cdh5.3.6.jar wordcount  -Dmapreduce.map.output.compress=true -Dmapreduce.map.output.compress.codec=org.apache.hadoop.io.compress.SnappyCodec /wc/input/ /wc/output2
+	-》配置hive
+		-》map的输出进行压缩
+			-》配置Hadoop
+			-》配置hive
+				hive.exec.compress.intermediate=true
+				hive中间结果集的压缩
+		-》MapReduce输出进行压缩
+			-》配置Hadoop
+			-》配置hive
+				hive.exec.compress.output
+	-》数据文件格式+压缩
+		-》orc+snappy
+			stored as orc tblproperties ("orc.compress"="SNAPPY");
+			create table log_orc_snappy(
+			id                  string,
+			url                 string,
+			referer             string,
+			keyword             string,
+			type                string,
+			guid                string,
+			pageId              string,
+			moduleId            string,
+			linkId              string,
+			attachedInfo        string,
+			sessionId           string,
+			trackerU            string,
+			trackerType         string,
+			ip                  string,
+			trackerSrc          string,
+			cookie              string,
+			orderCode           string,
+			trackTime           string,
+			endUserId           string,
+			firstLink           string,
+			sessionViewNo       string,
+			productId           string,
+			curMerchantId       string,
+			provinceId          string,
+			cityId              string,
+			fee                 string,
+			edmActivity         string,
+			edmEmail            string,
+			edmJobId            string,
+			ieVersion           string,
+			platform            string,
+			internalKeyword     string,
+			resultSum           string,
+			currentPage         string,
+			linkPosition        string,
+			buttonPosition      string
+			)
+			row format delimited fields terminated by '\t'
+			stored as orc tblproperties ("orc.compress"="SNAPPY");
+			insert overwrite table log_orc_snappy
+			select * from log_test;
+		-》parquet+snappy
+			set parquet.compression=SNAPPY;
+	
+五、hive中的数据倾斜和优化
+	-》常见的优化
+		-》大表转化为小表，充分利用临时表
+		-》合理的利用分区表+外部表
+		-》数据存储格式、压缩的配置
+		-》SQL语句的优化
+			-》join
+				尽量使用map join
+			-》filter
+				-》先过滤，再处理
+		-》开启并行
+			-》修改值为true
+			  <name>hive.exec.parallel</name>
+			  <value>false</value>
+			  <description>Whether to execute jobs in parallel</description>
+			-》设置并行线程的个数
+			  <name>hive.exec.parallel.thread.number</name>
+			  <value>8</value>
+			  <description>How many jobs at most can be executed in parallel</description>
+		-》开启JVM重用，调整为合理的值
+			mapreduce.job.jvm.numtasks=1
+		-》map和reduce的个数
+			-》map的个数
+				默认一个文件块一个maptask
+				min(split.size.max,max(block_size,split.size.min))
+				通过更改分片的大小来修改map task的个数，不能修改block_size
+			-》reduce
+				0.95-1.75*节点数量*每个节点的最大容器数
+				工作中：进行合理的采样，设置reduce的个数
+		-》开启推测执行
+			-》MapReduce中
+				mapreduce.map.speculative
+				mapreduce.reduce.speculative
+			-》hive中
+			<property>
+			  <name>hive.mapred.reduce.tasks.speculative.execution</name>
+			  <value>true</value>
+			  <description>Whether speculative execution for reducers should be turned on. </description>
+			</property>
+		-》启动hive的本地模式
+			<property>
+			  <name>hive.exec.mode.local.auto</name>
+			  <value>false</value>
+			  <description> Let Hive determine whether to run in local mode automatically </description>
+			</property>
+			-》开启本地模式后，符合条件的job只在当前计算节点执行，不会提交到集群
+			-》条件：
+				-》输入的数据必须不能大于128M
+				-》map的个数必须小于4
+				-》reduce最多只能有一个
+	-》hive中的数据倾斜
+		-》数据倾斜：
+			处理大量数据的过程中，其中某一个值过多，导致某些task任务迟迟不能完成，
+			影响整个job的运行
+			key：A A A A A B C
+			reduce：1 2 3
+		-》产生的原因
+			-》join
+				-》map join
+					小表与大表的join，小表会被读入内存，与大表进行join
+					-》使用方式
+						-》第一种
+							hive.auto.convert.join，默认就是true
+							如果hive判断符合小表的条件，会自动使用map join
+							hive.mapjoin.smalltable.filesize=25000000
+						-》第二种
+							指定一张表为小表，进行map join
+							/*+MapJOIN(tablename)*/
+				-》reduce join：大表join大表，效率比较低
+				-》SMB join：sort merge bulked join，适用于大表join大表
+					-》通过key的hash值取余的方式，决定某条记录放入哪个桶
+					A：1-100
+						分桶：
+							1	1-25
+							2	26-50
+							3	51-75
+							4	76-100
+							
+					B：1-100
+						分桶：
+							1	1-25
+							2	26-50
+							3	51-75
+							4	76-100
+					-》要求：B的桶的个数必须是A桶的个数的倍数
+					-》开启桶join
+						hive.auto.convert.sortmerge.join=true
+			-》group by（distinct）
+				-》hive.map.aggr
+					-》默认就是true
+					-》实际就是开启了map端的combiner，提前进行一次聚合
+				-》hive.groupby.skewindata=true
+					-》默认值是false，需要手动开启
+					-》实际功能：在进行分区时，不按照hash值取余进行分区，而是随机分区
+					-》随机分区进行一次处理聚合，再启动一个MapReduce，再一次聚合处理
+			http://www.cnblogs.com/ggjucheng/archive/2013/01/03/2842860.html
+
+				select /*+mapjoin(x)*/* from log a
+				left outer join (
+				select  /*+mapjoin(c)*/d.*
+				from ( select distinct user_id from log ) c
+				join users d
+				on c.user_id = d.user_id
+				) x
+				on a.user_id = b.user_id;
+				
+	-》apache日志分析
+-》创建表，加载数据
+create table IF NOT EXISTS log_apache (
+remote_addr string,
+remote_user string,
+time_local string,
+request string,
+status string,
+body_bytes_sent string,
+request_body string,
+http_referer string,
+http_user_agent string,
+http_x_forwarded_for string,
+host string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ' '
+stored as textfile ;
+load data local inpath '/opt/datas/access.log' into table log_apache ;
+	-》问题：字段中包含了分隔符？
+		
+
+CREATE TABLE apachelog (
+  host STRING,
+  identity STRING,
+  user STRING,
+  time STRING,
+  request STRING,
+  status STRING,
+  size STRING,
+  referer STRING,
+  agent STRING)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.RegexSerDe'
+WITH SERDEPROPERTIES (
+  "input.regex" = "([^]*) ([^]*) ([^]*) (-|\\[^\\]*\\]) ([^ \"]*|\"[^\"]*\") (-|[0-9]*) (-|[0-9]*)(?: ([^ \"]*|\".*\") ([^ \"]*|\".*\"))?"
+)
+STORED AS TEXTFILE;
+	-》解决：自己编写符合日志格式的正则表达式来进行加载
+	-》重新创建表，并使用正则加载
+	
+create table IF NOT EXISTS log_apache_reg (
+remote_addr string,
+remote_user string,
+time_local string,
+request string,
+status string,
+body_bytes_sent string,
+request_body string,
+http_referer string,
+http_user_agent string,
+http_x_forwarded_for string,
+host string
+)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.RegexSerDe'
+WITH SERDEPROPERTIES (
+  "input.regex" = "(\"[^ ]*\") (\"[-|^ ]*\") (\"[^\"]*\") (\"[^\"]*\") (\"[0-9]*\") (\"[0-9]*\") ([-|^ ]*) (\"[^ ]*\") (\"[^\"]*\") (\"[-|^ ]*\") (\"[^ ]*\")"
+)
+STORED AS TEXTFILE;	
+load data local inpath '/opt/datas/access.log' into table log_apache_reg;		
+
+-》使用Python脚本预处理数据
+
+CREATE TABLE u_data (
+userid INT,
+movieid INT,
+rating INT,
+unixtime STRING)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t'
+STORED AS TEXTFILE;
+
+wget http://files.grouplens.org/datasets/movielens/ml-100k.zip
+unzip ml-100k.zip
+
+LOAD DATA LOCAL INPATH '/opt/datas/ml-100k/u.data'
+OVERWRITE INTO TABLE u_data;
+SELECT COUNT(*) FROM u_data;
+
+CREATE TABLE u_data_new (
+userid INT,
+movieid INT,
+rating INT,
+weekday INT)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t';
+
+add FILE /opt/datas/weekday_mapper.py;
+		
+INSERT OVERWRITE TABLE u_data_new
+SELECT
+TRANSFORM (userid, movieid, rating, unixtime)
+USING 'python weekday_mapper.py'
+AS (userid, movieid, rating, weekday)
+FROM u_data;	
+
+SELECT weekday, COUNT(*)
+FROM u_data_new
+GROUP BY weekday;	
+	
+	
+	
+	
+
+
+
+
+
+

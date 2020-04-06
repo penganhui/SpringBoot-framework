@@ -1,0 +1,323 @@
+一、分区表的介绍及使用
+	-》需求：统计每一天的PV，UV，每一天分析前一天的数据
+		-》第一种情况：每天的日志存储在同一个目录中
+			/logs/20170209.log
+			      20170210.log
+				  20170211.log
+			
+			-》预处理：将日期字段提取转换成yyyyMMdd的格式
+			-》数据分析：
+				select * from logs where date='20170211';
+				先加载所有数据，然后再进行过滤
+		-》第二种情况：每天的日志存储在以当天日期命名的文件目录中
+			/logs/20170209/20170209.log
+			      20170210/20170210.log
+				  20170211/20170211.log
+				  
+			-》数据分析：
+				select * from logs where date='20170211';
+				
+				先进行过滤，只加载需要的数据
+				
+	-》hive分区表实现的功能：
+		-》将表中的数据进行分区，在进行分区检索时，直接加载对应分区的数据
+		-》对于HDFS来说，多了一级目录	
+		-》对于数据处理来说，直接处理了需要的数据，提前进行了过滤
+		
+		
+	-》分区表的使用
+		-》创建分区表：PARTITIONED BY (col_name data_type [COMMENT col_comment], ...)
+			-》分区表中的字段是逻辑的字段，数据文件中没有实际的字段存储
+		create table emp_part(
+		empno int,
+		ename string,
+		job string,
+		mgr int,
+		hiredate string,
+		sal double,
+		comm double,
+		deptno int
+		)
+		partitioned by (date string)
+		row format delimited fields terminated by '\t';
+		load data local inpath '/opt/datas/emp.txt' into table emp_part partition (date='20170211');
+		load data local inpath '/opt/datas/emp.txt' into table emp_part partition (date='20170212');
+
+		select * from emp_part where date='20170212';
+	-》企业中：分区表+外部表
+	-》多级分区
+		create table emp_part_2(
+		empno int,
+		ename string,
+		job string,
+		mgr int,
+		hiredate string,
+		sal double,
+		comm double,
+		deptno int
+		)
+		partitioned by (date string,hour string)
+		row format delimited fields terminated by '\t';
+		load data local inpath '/opt/datas/emp.txt' into table emp_part_2 partition (date='20170211',hour='00');
+		
+二、hive表数据的导入导出
+	-》导入
+		-》加载本地文件到hive：拷贝文件
+			load data local inpath 'linux_filepath' into table tablename;
+			load data local inpath '/opt/modules/hive-0.13.1-bin/student.txt' into table tmp2_table;
+			-》应用场景：常见的情况，一般用于日志文件的直接导入
+		-》加载HDFS文件到hive：移动文件
+			load data  inpath 'hdfs_filepath' into table tablename;
+			-》应用场景：本地数据存储文件比较大的情况
+		-》覆盖表中的数据
+			load data local inpath '/opt/modules/hive-0.13.1-bin/student.txt' overwrite into table tmp2_table;
+			-》应用场景：一般用于临时表数据的导入
+		-》创建表时通过select加载数据
+			create table tmp2_table2 as select * from tmp2_table;
+			-》应用场景：常用于临时表反复使用，作为数据分析结果的保存
+		-》创建表时通过location加载数据
+			create tabletmp2_table3(col_comment……) location 'hdfs_filepath';
+			-》应用场景：固定的数据采集时指定hdfs的数据目录
+		-》创建表以后，通过insert加载数据
+			insert into|overwrite table tbname select *……
+			create table tmp2_table4(
+			num string ,
+			name string
+			)
+			row format delimited fields terminated by '\t'
+			stored as textfile;
+			insert into table tmp2_table4 select * from tmp2_table;
+			-》用于数据分析结果的导入或者存储
+	-》导出
+		-》通过insert命令进行导出
+			insert overwrite [local] directory 'path' select *……
+			-》导出到本地目录
+				insert overwrite local directory '/opt/datas/tmp2_table' select * from tmp2_table2;
+				insert overwrite local directory '/opt/datas/tmp2_table' row format delimited fields terminated by '\t' select * from tmp2_table2;
+			-》导出到HDFS
+				insert overwrite directory '/tmp2_table' select * from tmp2_table2;
+				-》导出到hdfs不支持分隔符的指定
+				insert overwrite directory '/tmp2_table' row format delimited fields terminated by '\t' select * from tmp2_table2;
+		-》通过Hadoop的hdfs命令中的get操作导出数据
+		-》通过hive -e 或者 -f 执行hive的语句，将数据执行的结果进行重定向保存即可
+		-》sqoop框架将数据导出到关系型数据库
+	-》import和export：用于hive表的备份
+		-》export table tmp2_table to '/export';
+		-》import table tmp2_table5 from '/export';
+		
+三、hive的常用语句及UDF
+	-》基本语句
+		-》字段的查询
+		-》where、limit、distinct
+			-》查询部门编号是30的员工
+				select empno,ename,deptno from emp where deptno='30';
+			-》查看前3条记录
+				select * from  emp limit 3;
+			-》查询当前有哪些部门
+				select distinct deptno from emp;
+		-》between and，> <、is null ,is not null,in,not in
+			-》查询员工编号大于7500
+				select * from emp where empno>7500;
+			-》查询薪资在2000到3000之间
+				select * from emp where sal between 2000 and 3000;
+			-》查询奖金不为空的员工
+				select * from emp where comm is not null;
+		-》聚合函数max、min、avg、count、sum
+			-》select count(1) cnt from emp;
+			-》select max(sal) max_sal from emp;
+			-》select avg(sal) max_sal from emp;
+		-》group by ，having
+			-》求每个部门的平均工资
+				select deptno,avg(sal) from emp group by deptno;
+			-》求部门平均工资大于2000的
+				select deptno,avg(sal) avg from emp group by deptno having avg >2000;
+		-》join
+			-》等值join（inner join）:两边都有的值进行join
+				select a.empno,a.ename,a.sal,b.deptno,b.dname from emp a inner join dept b on a.deptno=b.deptno;
+			-》left join：以左表的值为基准
+				select a.empno,a.ename,a.sal,b.deptno,b.dname from emp a left join dept b on a.deptno=b.deptno;
+			-》right join：以右表的值为基准
+				select a.empno,a.ename,a.sal,b.deptno,b.dname from emp a right join dept b on a.deptno=b.deptno;
+			-》full join：以两张表中所有的值为基准
+				select a.empno,a.ename,a.sal,b.deptno,b.dname from emp a full join dept b on a.deptno=b.deptno;
+				
+	-》hive中reduce的配置
+		In order to change the average load for a reducer (in bytes):
+		  set hive.exec.reducers.bytes.per.reducer=<number>
+		In order to limit the maximum number of reducers:
+		  set hive.exec.reducers.max=<number>
+		In order to set a constant number of reducers:
+		  set mapreduce.job.reduces=<number>
+	-》hive中的四种排序
+		-》order by：对某一列进行全局排序
+			select empno,ename,deptno,sal from emp order by sal desc;
+			insert overwrite local directory '/opt/datas/order' select empno,ename,deptno,sal from emp order by sal desc;
+		-》sort by：对每个reduce进行内部排序，如果只有一个reduce，等同于order by
+			set mapreduce.job.reduces=2
+			insert overwrite local directory '/opt/datas/sort' select empno,ename,deptno,sal from emp sort by sal desc;
+		-》distribute by：对数据按照某个字段进行分区，交给不同的reduce进行处理
+							一般与sortby连用，必须放在sort by前面
+			insert overwrite local directory '/opt/datas/distribute' select empno,ename,deptno,sal from emp distribute by empno sort by sal desc;
+		-》cluster by：当我们的distribute by与sort by使用的是同一个字段时，可用cluster by
+			insert overwrite local directory '/opt/datas/distribute' select empno,ename,deptno,sal from emp cluster by sal desc;
+	-》hive中的分析函数与窗口函数
+		https://cwiki.apache.org/confluence/display/Hive/LanguageManual+WindowingAndAnalytics
+		
+		-》功能：可以对分组后的数据进行组内每行的处理
+		-》格式：f_name() over (partition by col order by col)
+		-》演示：
+			-》对emp表进行薪资降序排列
+				select empno,ename,deptno,sal from emp order by sal desc;
+			-》对emp表进行每个部门的薪资降序排列,显示序号
+				select empno,ename,deptno,sal,ROW_NUMBER() over (partition by deptno order by sal desc) as number from emp;
+			-》显示每个部门最高的薪资
+				select empno,ename,deptno,sal,max(sal) over (partition by deptno order by sal desc) as max_sal from emp;
+		-》分析函数：
+			-》row_number()
+			-》rand()
+		-》窗口函数
+			-》lead
+				-》格式：lead(value1,value2,value3)
+					value1：所要选取的列
+					value2: 偏移量
+					value3：超出窗口的默认值
+				-》功能：显示目标列的后几个（偏移量）值
+					select empno,ename,deptno,sal,lead(sal,1,0) over (partition by deptno order by sal desc)  from emp;
+			-》lag
+				-》格式：lag(value1,value2,value3)
+					value1：所要选取的列
+					value2: 偏移量
+					value3：超出窗口的默认值
+				-》功能：显示目标列的前几个（偏移量）值
+					select empno,ename,deptno,sal,lag(sal,1,0) over (partition by deptno order by sal desc)  from emp;
+			-》first_value
+			-》last_value
+	-》hive中的UDF
+		-》user define function：用户自定义函数
+		-》类型：
+			-》UDF：一进一出
+			-》UDAF：多进一出
+			-》UDTF: 一进多出
+		-》实现UDF
+			-》编写UDF代码
+				-》继承UDF类
+				-》实现至少一个或者多个evaluate方法
+				-》必须有返回值，可以为null，但是不能是void类型
+				-》代码中尽量使用Hadoop的数据类型
+					-》Text
+					-》writable
+			-》打成jar包
+			-》添加到hive的classpath中
+			-》在hive中创建方法
+			-》调用方法
+		-》编写UDF，实现日期的转换
+			31/Aug/2015:00:04:37 +0800	-》		2015-08-31 00:04:37
+			-》将hive的和Hadoop依赖添加到pom文件
+			    <dependency>
+				  <groupId>org.apache.hive</groupId>
+				  <artifactId>hive-exec</artifactId>
+				  <version>0.13.1</version>
+				</dependency>
+				<dependency>
+				  <groupId>org.apache.hive</groupId>
+				  <artifactId>hive-jdbc</artifactId>
+				  <version>0.13.1</version>
+				</dependency>
+			-》创建UDF代码
+			-》打包
+			-》在hive中添加
+				add jar /opt/datas/dateudf.jar;
+			-》在hive中创建方法
+				create temporary function dateudf as 'com.hpsk.bigdata.hive.udf.DateFormat';
+			-》使用
+				select dateudf('31/Aug/2015:00:04:37 +0800') date from emp;
+
+四、hive的连接方式
+	-》hive shell
+		-》-e
+		-》-f
+	-》hiveserver2：将hive的服务变成服务端，可以通过客户端进行连接
+		-》bin/hiveserver2
+			-》启动在后台运行：bin/hiveserver2 &
+		-》beeline
+			-》bin/beeline -h
+				-》第一种使用方式：
+					   -u <database url>               the JDBC URL to connect to
+					   -n <username>                   the username to connect as
+					   -p <password>                   the password to connect as
+					bin/beeline -u jdbc:hive2://bigdata-training01.hpsk.com:10000 -n hpsk -p hpsk
+				-》第二种使用方式
+					bin/beeline
+					!connect jdbc:hive2://bigdata-training01.hpsk.com:10000 
+		-》jdbc方式
+			https://cwiki.apache.org/confluence/display/Hive/HiveServer2+Clients#HiveServer2Clients-JDBC
+			
+五、hive语句的解析
+	-》运行一条SQL语句
+		-》连接元数据，判断数据库是否存在
+		-》判断表或者分区是否存在
+		-》如果存在找到对应的HDFS的目录，传递给MapReduce作为输入
+		-》DBS:存储了所有数据库的信息
+		-》TBLS:存储了所有表的信息
+		-》PARTITIONS:存储了所有分区的信息
+		-》SDS:存储了所有表和分区在hdfs上所对应的目录
+	-》fetch task
+		<property>
+		  <name>hive.fetch.task.conversion</name>
+		  <value>minimal</value>
+		  <description>
+			Some select queries can be converted to single FETCH task minimizing latency.
+			Currently the query should be single sourced not having any subquery and should not have
+			any aggregations or distincts (which incurs RS), lateral views and joins.
+			1. minimal : SELECT STAR, FILTER on partition columns, LIMIT only
+			2. more    : SELECT, FILTER, LIMIT only (TABLESAMPLE, virtual columns)
+		  </description>
+		</property>
+	-》hive中的虚拟列
+		-》INPUT__FILE__NAME：该记录所在的文件的地址
+		-》BLOCK__OFFSET__INSIDE__FILE: 该记录在文件块中的偏移量
+		-》ROW__OFFSET__INSIDE__BLOCK: 行的偏移量，默认不启用
+			  <name>hive.exec.rowoffset</name>
+			  <value>false</value>
+	-》严格模式
+		<property>
+		  <name>hive.mapred.mode</name>
+		  <value>nonstrict</value>
+		  <description>The mode in which the Hive operations are being performed.
+			 In strict mode, some risky queries are not allowed to run. They include:
+			   Cartesian Product.
+			   No partition being picked up for a query.
+			   Comparing bigints and strings.
+			   Comparing bigints and doubles.
+			   Orderby without limit.
+		  </description>
+		</property>
+		-》开启严格模式后的限制
+			-》如果分区表不加分区过滤，不允许执行
+			-》限制笛卡尔积的运行，使用join时不使用on
+			-》限制bigint与string类型的比较
+			-》限制bigint与double类型的比较
+			-》使用order by时，如果不用limit，也不允许运行
+	-》语句解析命令：explain
+		-》将语句解析成语法树
+			
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		
+				
+				
+				
+				
+				  

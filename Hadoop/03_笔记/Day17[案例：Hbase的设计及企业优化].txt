@@ -1,0 +1,307 @@
+一、hbase表的设计
+	-》关于rowkey的设计
+		-》rowkey是整个hbase进行检索的唯一索引
+	-》关于列簇的设计
+	-》关于列标签的设计
+	-》关于region分区的设计
+	-》热点现象：类似于hive中的数据倾斜
+		-》原因：表的设计不合理
+			-》rowkey
+			-》分区
+		-》随机rowkey+预分区
+	-》rowkey的设计
+		-》基本原则：按照业务需求结合设计
+		-》长度原则：
+			-》rowkey的长度最大是64k
+			-》官方开发人员建议：16字节（64位，8字节存储）
+			-》实际生产环境：10-100字节之间
+			-》hbase底层存储：keyvalue
+				key:rowkey+cf+col+ts
+				value:value
+		-》散列原则
+			-》案例
+				region1: 0001-1000
+				|
+				region2:0001-0500
+				region3:0501-1000
+				1001	->		region3
+				1002	->		region3
+				1500	->		region3
+				region3:0500-1500
+				|
+				region4:0500-1000
+				region5:1001-1500
+				1501	->		region5
+				1502	->		region5
+				
+				-》问题
+					-》rowkey是递增的，设计不合理
+					-》region的分区是自动的，不断进行分割
+			-》使用组合字段
+				UUID+ts
+				
+				110_20170101111111
+				111_20170101111111
+				120_20170101111111
+				
+				多数情况下：如果将时间放在前面，由于是前缀匹配，那么容易产生热点
+			-》反转字段
+				需求：可以按照时间进行数据的检索
+				start=201701  stop=201702
+				20170101111111_110
+				将时间进行反转
+				11111110107102_110
+				21111110107102_120
+			-》使用MD5等加密算法进行加密
+		-》唯一原则
+	-》列簇和列标签的设计
+		-》列簇
+			-》列簇一般最多两个，不要超过3个
+			-》列簇名称，能标识即可，长度也是越短越好
+		-》列标签
+			-》标示性
+			-》使用hbase特殊情况，可以使用列来代替多版本
+				rowkey-》列簇-》列标签-》版本-》value
+				
+二、微博案例
+	第一张表：微博内容表，用于存储每个用户所发布的每一条微博
+		TableName : weibo-content
+		RowKey : uid_timestamp   用户账号结合内容发布的时间戳
+		Column Family：cf   因为rowkey是使用用户账号结合内容发布的时间戳，所以这里内容保存的版本只会有一个版本
+		Column Qualifier : 
+				theme  主题
+				content 内容
+				photo 图片
+			
+	第二张表：用户关系表：用来存储用户关系
+		TableName ： relations
+		RowKey：uid
+		Column Family：cf1 关注用户
+		Column Qualifier：使用关注用户的uid作为列标签，value也用关注用户的uid
+		Column Family：cf2 粉丝用户 
+		Column Qualifier：使用粉丝用户的uid作为列标签，value也用粉丝用户的uid
+
+	第三张表：微博接收内容邮件箱表 ：用来进行推送记录关注人的微博
+		TableName：receive-content-email
+		RowKey：uid 用户账号
+		Column Family：cf
+		Column Qualifier：以关注用户账号作为列标签以微博内容表的rowkey作为value
+			保留版本数 1000（最大版本1000，最小版本1000，版本存留时间365*24*60*60）
+
+	A是B的粉丝，A关注了B
+	B发了一条微博
+
+	rowkey:	A-uid
+	cf:		cf
+	col:	B-uid		
+	value:	B在第一张表中所发的微博的所有rowkey，多版本的
+
+	-》B发了一条微博，被存储到了第一张表
+	-》系统根据B的UID，在第二张表中找到B的粉丝列表
+	-》系统以B的粉丝的UID作为rowkey，B的UID作为列标签，B在第一张表中发的微博的rowkey作为value
+
+	-》A刷新微博
+	-》系统从第三张表中，获取A关注的所有用户的最新的微博的rowkey
+	-》根据rowkey从第一张表中读数据，显示给A
+
+	-》微博代码
+		-》理解微博存储的流程
+		-》熟悉JAVA API中的DDL操作
+		
+三、hbase列簇属性
+	-》默认属性
+		{NAME => 'info', DATA_BLOCK_ENCODING => 'NONE', BLOOMFILTER => 'ROW', REPLICATION_SCOPE => '0', VERSIONS => '1', COMPRESSION => 'NONE', MIN_VERSIONS => '0', TTL => 'FOREVER', KEEP_DELETED_CELLS => 'false', BLOCKSIZE => '65536', IN_MEMORY => 'false', BLOCKCACHE => 'true'}
+	-》创建时更改默认属性
+		create 't2',{NAME => 'info',BLOOMFILTER => 'ROWCOL'}
+			
+	-》BLOOMFILTER：布隆过滤器
+		-》ROW：在检索数据时，检测storefile时候，会先判断该storefile中是否有需要的rowkey，如果没有，直接跳过
+		-》ROWCOL：在检索数据时，检测storefile时候，会先判断该storefile中是否有需要的rowkey和需要的列标签，如果没有，直接跳过
+		-》None：不启用
+	-》VERSIONS：版本的个数
+	-》COMPRESSION：压缩-》可配置snappy压缩
+	-》MIN_VERSIONS：最小版本数
+	-》TTL：版本存活时间，默认单位是秒，默认值是永不过期
+	-》BLOCKSIZE：数据块的大小，默认值是64K
+		数据块越小，查询越快，索引就越大，从而占用的内存就大
+	-》IN_MEMORY：缓存的级别，最高的优先级
+	-》BLOCKCACHE：缓存，一般常用的关键性列簇，开启缓存
+				
+四、hbase调优
+	-》预分区:必须依据设计好的rowkey进行划分
+		-》第一种
+			 create 'r1', 'f1', SPLITS => ['10', '20', '30', '40']
+		-》第二种
+			 create 'r2', 'f1', SPLITS_FILE => 'splits.txt'
+		-》第三种
+			create 'r3', 'f1', {NUMREGIONS => 15, SPLITALGO => 'HexStringSplit'}
+		-》第四种
+			byte[][] splitKeys = {
+				Bytes.toBytes("100"),
+				Bytes.toBytes("200"),
+				Bytes.toBytes("300")
+            };
+			admin.createTable(desc,splitKeys);
+	-》Java 堆内存的GC调优
+		-》堆内存中的区域
+			-》新生代：主要存储新生的对象，存储时间比较短，空间比较小
+			-》老年代：主要存储应用程序中生命周期比较长的对象，空间比较大
+			-》永久代：内存的永久保存区域，主要放class和meta的信息
+		-》垃圾回收策略
+			-》Parrallel New Collector
+				速度快，但是如果数据量比较大，容易造成GC停顿，一般配置在新生代
+			-》并行标记回收器（Concurrent Mark-Sweep Collector）
+				速度相对较慢，但是对于大的存储可以避免GC停顿，可以设置在老年代
+		-》配置
+			-》将下面代码配置到每一台机器的hbase-env.sh中
+			export   HBASE_REGIONSERVER_OPTS=”-Xmx8g -Xms8G        -Xmn128m -XX:UseParNewGC     -XX:UseConcMarkSweepGC -XX:CMSInitiatingOccupancyFraction=70            -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCTimeStamps    -Xloggc:$HBASE_HOME/logs/gc-${hostname}-hbase.log”
+	-》Hbase内存管理
+		-》memstore：主要用于写
+			-》占内存的40%
+			-》flush操作
+				-》memstore达到128M
+				-》全局整个regionserver的memstore达到90%
+				-》一般在企业中会关闭自动触发，使用手动溢写
+					-》关闭自动触发：将
+						    <name>hbase.hregion.memstore.flush.size</name>
+							<value>134217728</value>
+						调大一些，在没达到这个值之前进行手动触发
+					-》手动触发：
+						flush 'TABLENAME' ：将表中还在内存中的数据手动溢写到磁盘
+		-》blockcache：主要用于读
+			-》占内存的40%
+	-》本地memstore缓存
+		    <name>hbase.hregion.memstore.mslab.enabled</name>
+			<value>true</value>
+	-》compact
+		-》minor
+			-》将最早生成的storefile进行合并，生成较大的storefile
+			-》不会删除被删除的和更新的记录
+			-》合并之后，依旧会有多个storefile文件
+			-》触发频率较高，资源的消耗不高
+		-》major
+			-》将所有的storefile合并成一个storefile文件
+			-》会停止当前region的请求，知道合并完成
+			-》会删除和更新被标记删除和更新的数据
+			-》触发的频率一周（7天）一次，资源消耗较大
+			-》在企业中，关闭自动触发，执行手动触发
+				-》关闭，将该参数值设置为0，默认是7天
+					    <name>hbase.hregion.majorcompaction</name>
+						<value>0</value>
+				-》手动
+					major_compact 't1'
+	-》split
+		-》将达到阈值的region进行等分成两个region
+		-》决定参数：默认是10GB
+			<name>hbase.hregion.max.filesize</name>
+			<value>10737418240</value>
+		-》在企业中，关闭自动触发，执行手动触发
+			-》怎么关闭
+				-》将大小调整至100GB
+			-》手动的触发
+				-》split 'regionName' # format: 'tableName,startKey,id'
+	-》负载均衡
+		-》balance_switch：开关，是否启动负载均衡
+		-》balancer
+	-》测试
+		bin/hbase org.apache.hadoop.hbase.util.CompressionTest    /home/hpsk/zookeeper.out snappy 
+		报错：
+		Exception in thread "main" java.lang.UnsatisfiedLinkError: org.apache.hadoop.util.NativeCodeLoader.buildSupportsSnappy()Z
+	-》配置snappy压缩属性
+		-》配置Hadoop必须支持snappy
+			bin/hadoop checknative
+		-》将压缩的jar包放到hbase的lib目录下
+			ll lib/hadoop-snappy-0.0.1-SNAPSHOT.jar 
+		-》在hbase的lib目录创建
+			mkdir -p lib/native/Linux-amd64-64/
+		-》将Hadoop的lib/native目录下所有的文件拷贝到hbase的lib/native/Linux-amd64-64/
+			cp ../hadoop-2.5.0/lib/native/* lib/native/Linux-amd64-64/
+		-》上面三步操作需要在每一台regionserver上执行，重启hbase集群
+		-》再次测试
+			SUCCESS
+		-》创建支持压缩的表
+			create 'yasuo',{NAME=>'f1'},{NAME=>'f2',COMPRESSION => 'SNAPPY'}
+			
+五、Phoenix的使用
+	-》索引
+		-》以打话单为例
+		表A：
+			rowkey：number+time
+			cf:cf
+			col:
+				呼叫者
+				被呼叫者
+				通话时长
+				费用
+				基站
+			-》查询每个人在某一时间范围内的数据
+				-》输入手机号码
+				-》选择要查询的日期
+				-》打印话单
+				110_20170101
+				110_20170201
+		-》打印1月份所有用户的通话记录
+			-》希望：time+number
+				20170101
+				20170201
+		-》解决：
+			建立索引表：
+			表A：
+			表B：rowkey：time+number
+				 cf：cf
+				 col:number+time
+				 value:number+time
+		-》问题：源表与索引表的同步问题
+			-》第一种	
+				在客户端往源表中插入时，同时往索引表也插入一份
+			-》第二种：编写协处理器
+				-》将客户端的代码放到服务端，在客户端往源表中插入时，让hbase自动往索引表中插入
+				Observer类协处理器，类似于关系型数据库的触发器
+				Endpoint类协处理器，类似于关系型数据库中的存储过程
+			-》通过第三方工具实现
+				-》solr
+				-》es
+				-》Phoenix-》就是协处理器
+				
+	-》Phoenix
+		-》编译
+			-》下载源码，解压
+			-》替换pom文件
+			-》进入源码目录，使用maven编译
+				mvn clean package -DskipTests
+			-》编译完成进入Phoenix-assembly/target/目录，找到编译好的包phoenix-4.2.2.tar.gz
+
+		-》部署安装
+			-》解压
+				tar -zxvf phoenix-4.2.2.tar.gz -C /opt/modules/
+			-》配置Phoenix关联hbase
+				-》将Phoenix 两个jar包拷贝到hbase的lib目录
+					-》core
+						cp lib/phoenix-core-4.2.2.jar ../hbase-0.98.6-hadoop2/lib/
+					-》client
+						cp phoenix-4.2.2-client.jar ../hbase-0.98.6-hadoop2/lib/
+					-》重启hbase集群
+				-》将hbase的配置文件hbase-site拷贝到Phoenix的bin目录
+		-》启动Phoenix
+			bin/sqlline.py bigdata-training01.hpsk.com:2181
+			
+	-》Phoenix的使用
+		-》help：查看帮助
+		-》hbase中区分大小写，Phoenix默认全部是大写
+		-》如果要使用Phoenix来管理hbase的表，需要进行Phoenix与hbase表的关联
+			-》在Phoenix中创建同名的hbase的表
+				create table "stu_info"("ROW" varchar primary key,"info"."name" varchar,"info"."sex" varchar,"info"."age" varchar);
+				
+				
+				
+				
+				
+				
+				
+				
+				
+				
+				
+				
+				
+				

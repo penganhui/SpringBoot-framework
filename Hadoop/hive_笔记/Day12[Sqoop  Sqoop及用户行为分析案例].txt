@@ -1,0 +1,374 @@
+一、CDH版本的介绍及环境部署
+	-》Hadoop的三大发行版本
+		-》Apache Hadoop
+		-》cloudera Hadoop：CDH
+		-》Hortonworks: HDP
+	-》选用CDH版本的好处
+		-》解决每个框架之间的兼容性问题
+		-》不需要对其他框架进行对应版本的编译
+	-》cdh5框架的下载：cdh-5.3.6
+		-》http://archive.cloudera.com/cdh5/cdh/5/
+	-》安装部署CDH版本
+		-》创建CDH版本目录
+			sudo mkdir /opt/cdh-5.3.6
+			sudo chown -R hpsk:hpsk /opt/cdh-5.3.6
+		-》Hadoop
+			-》下载解压
+			-》修改配置文件
+				->hadoop-env.sh
+				->core-site.xml
+				->hdfs-site.xml
+				->mapred-site.xml
+				->yarn-site.xml
+				->slaves
+			-》格式化HDFS
+				bin/hdfs namenode -format
+			-》启动
+		-》Hive
+			-》下载解压
+			-》修改配置文件
+				->hive-env.sh
+				->hive-site.xml
+				->log4j
+			-》添加MySQL的连接驱动包
+			-》启动
+			-》创建表
+			
+二、sqoop的介绍及安装部署
+	-》sqoop的功能：用于hdfs与rdbms之间数据的导入导出
+	-》数据分析的业务流程
+		-》数据清洗
+			-》字段的过滤
+			-》字段的补充	-》用户、订单、商品、一般存储在RDBMS-》用sqoop实现
+			-》字段格式化
+		-》数据分析后的数据存储
+			-》HDFS
+			-》将分析好的数据导出到MySQL中，供数据展示层进行读取
+	-》sqoop不仅仅支持将数据导入到hdfs
+		-》hive
+		-》hbase
+	-》sqoop的底层实现原理
+		-》使用参数来使用sqoop命令即可
+		-》sqoop底层封装的是一个MapReduce程序
+		-》将参数传递给MapReduce，然后进行打包，提交给yarn执行
+		-》只有map task，没有reduce task，不进行排序合并等操作
+	-》sqoop版本
+		-》sqoop1：选用1.4.5
+		-》sqoop2：添加了sqoop server ，安全机制等等
+	-》sqoop中的导入导出，基于HDFS而言
+	-》sqoop的安装部署
+		-》下载解压
+			tar -zxvf /opt/tools/sqoop-1.4.5-cdh5.3.6.tar.gz -C /opt/cdh-5.3.6/
+		-》修改配置文件
+			mv conf/sqoop-env-template.sh conf/sqoop-env.sh
+			export HADOOP_COMMON_HOME=/opt/cdh-5.3.6/hadoop-2.5.0-cdh5.3.6
+			export HADOOP_MAPRED_HOME=/opt/cdh-5.3.6/hadoop-2.5.0-cdh5.3.6
+			export HIVE_HOME=/opt/cdh-5.3.6/hive-0.13.1-cdh5.3.6
+		-》添加MySQL的连接驱动包
+			cp /opt/tools/mysql-connector-java-5.1.27-bin.jar lib/
+		-》测试
+			-》帮助命令
+				bin/sqoop help
+				bin/sqoop list-databases --connect jdbc:mysql://bigdata-training01.hpsk.com:3306 --username root --password 123456
+			
+三、sqoop的导入
+	-》将MySQL中的数据导入到HDFS
+		-》在MySQL中创建数据
+			create table toHdfs(
+			id varchar(20) primary key,
+			name varchar(20) not null
+			);
+			insert into toHdfs value("0001","laoda");
+			insert into toHdfs value("0002","laoer");
+			insert into toHdfs value("0003","laosan");
+			insert into toHdfs value("0004","laosi");
+		-》使用SQOOP将数据导入到HDFS
+			usage: sqoop import [GENERIC-ARGS] [TOOL-ARGS]
+			bin/sqoop import \
+			--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+			--username root \
+			--password 123456 \
+			--table toHdfs
+			-》默认的输出路径：用户的家目录
+			-》指定导入目录
+				--target-dir
+			-》指定maptask的个数
+				-m
+			-》提前删除已存在的目录
+				bin/sqoop import \
+				--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+				--username root \
+				--password 123456 \
+				--table toHdfs \
+				--direct \
+				--delete-target-dir \
+				--target-dir /sqoop/import/ \
+				-m 1
+			-》指定导入分隔符
+				--fields-terminated-by
+				
+				bin/sqoop import \
+				--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+				--username root \
+				--password 123456 \
+				--table toHdfs \
+				--direct \
+				--delete-target-dir \
+				--target-dir /sqoop/import/ \
+				--fields-terminated-by '\t' \
+				-m 1
+			-》指定导入某些列
+				 --columns
+				bin/sqoop import \
+				--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+				--username root \
+				--password 123456 \
+				--table toHdfs \
+				--columns id \
+				--direct \
+				--delete-target-dir \
+				--target-dir /sqoop/columns \
+				--fields-terminated-by '\t' \
+				-m 1
+			-》指定导入SQL语句结果
+				-e,--query <statement> 
+				-》不能与--table一起使用
+				bin/sqoop import \
+				--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+				--username root \
+				--password 123456 \
+				--query 'select name from toHdfs where $CONDITIONS' \
+				--direct \
+				--delete-target-dir \
+				--target-dir /sqoop/columns \
+				--fields-terminated-by '\t' \
+				-m 1
+		-》如果MySQL中的数据，是动态变化的，如何保证数据同步的问题？
+			-》如果每天都有增加的数据。每次导入到hdfs时，会不会包含之前导入过的数据？
+			-》如果MySQL中的数据被修改，如何解决HDFS上的数据同步？
+		-》增量导入
+		Incremental import arguments:
+	   --check-column <column>        Source column to check for incremental
+									  change
+	   --incremental <import-type>    Define an incremental import of type
+									  'append' or 'lastmodified'
+	   --last-value <value>           Last imported value in the incremental
+									  check column
+		-》check-column：用于记录导入的标志列
+		-》incremental：导入的类型
+			-》append：追加
+			-》lastmodified：根据时间进行导入
+		-》last-value：上一次导入时的最后一个值
+
+			create table toHdfsIN(
+			id int primary key,
+			name varchar(20) not null
+			);
+			insert into toHdfsIN value("1","laoda");
+			insert into toHdfsIN value("2","laoer");
+			insert into toHdfsIN value("3","laosan");
+			insert into toHdfsIN value("4","laosi");
+			insert into toHdfsIN value("5","laowu");
+			insert into toHdfsIN value("6","laoliu");
+
+			bin/sqoop import \
+			--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+			--username root \
+			--password 123456 \
+			--table toHdfsIN \
+			--direct \
+			--delete-target-dir \
+			--target-dir /sqoop/incremental/ \
+			--fields-terminated-by '\t' \
+			-m 1
+			-》增量导入不能与--delete-target-dir一起使用
+				bin/sqoop import \
+				--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+				--username root \
+				--password 123456 \
+				--table toHdfsIN \
+				--direct \
+				--target-dir /sqoop/incremental/ \
+				--fields-terminated-by '\t' \
+				--check-column id \
+				--incremental append \
+				--last-value 4 \
+				-m 1
+
+		-》增量导入一般都使用sqoop job来执行
+			bin/sqoop-job \
+			--create job1 \
+			-- import \
+			--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+			--username root \
+			--password 123456 \
+			--table toHdfsIN \
+			--direct \
+			--target-dir /sqoop/incremental/ \
+			--fields-terminated-by '\t' \
+			--check-column id \
+			--incremental append \
+			--last-value 4 \
+			-m 1
+			-》查看job：bin/sqoop job --show job1
+			-》执行job1：bin/sqoop job -exec job1
+			
+	-》导入HIVE
+		bin/sqoop import \
+		--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+		--username root \
+		--password 123456 \
+		--table toHdfs \
+		--delete-target-dir \
+		--hive-import  \
+		--hive-database student \
+		--hive-table stu_info \
+		--fields-terminated-by '\t' \
+		-m 1
+		-》实际过程
+			-》MapReduce将MySQL中的数据保存到hdfs的家目录
+			-》将数据从hdfs的家目录加载到hive表中去
+	
+四、sqoop的导出
+	-》将HDFS（HIVE）中的数据导出到MySQL
+		-》bin/sqoop export --help
+	
+		bin/sqoop export \
+		--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+		--username root \
+		--password 123456 \
+		--table fromHdfs \
+		--export-dir /user/hive/warehouse/student.db/stu_info \
+		--input-fields-terminated-by '\t' \
+		-m 1
+	-》使用sqoop执行文件
+		bin/sqoop --options-file file_path
+		bin/sqoop --options-file /opt/datas/sqoop.txt
+		
+五、用户行为案例分析
+	-》需求分析
+		-》需求：统计每天每小时的PV,UV数
+		-》实现过程
+			-》创建hive表加载源数据
+				-》创建分区表，两级分区
+			-》过滤字段，提取需要的字段
+			-》统计PV
+				count（URL）
+			-》统计UV
+				count（distinct guid）
+			-》生成结果表
+				date	hour	PV		UV
+			-》导出到MySQL
+				sqoop
+	-》数据采集
+		create database log_analysis;
+		use log_analysis;
+		create table log_source(
+		id                  string,
+		url                 string,
+		referer             string,
+		keyword             string,
+		type                string,
+		guid                string,
+		pageId              string,
+		moduleId            string,
+		linkId              string,
+		attachedInfo        string,
+		sessionId           string,
+		trackerU            string,
+		trackerType         string,
+		ip                  string,
+		trackerSrc          string,
+		cookie              string,
+		orderCode           string,
+		trackTime           string,
+		endUserId           string,
+		firstLink           string,
+		sessionViewNo       string,
+		productId           string,
+		curMerchantId       string,
+		provinceId          string,
+		cityId              string,
+		fee                 string,
+		edmActivity         string,
+		edmEmail            string,
+		edmJobId            string,
+		ieVersion           string,
+		platform            string,
+		internalKeyword     string,
+		resultSum           string,
+		currentPage         string,
+		linkPosition        string,
+		buttonPosition      string
+		)
+		partitioned by (date string,hour string)
+		row format delimited fields terminated by '\t'
+		stored as textfile;
+		load data local inpath '/opt/datas/2015082818' into table log_source partition (date='20150828',hour='18');
+		load data local inpath '/opt/datas/2015082819' into table log_source partition (date='20150828',hour='19');
+	-》数据清洗
+		-》提取字段:
+			-》手动分区
+				create table log_clear_part1(
+				id  string,
+				url string,
+				guid string
+				)
+				partitioned by (date string,hour string)
+				row format delimited fields terminated by '\t'
+				stored as textfile;
+
+				insert into table log_clear_part1 partition (date='20150828',hour='18')
+				select id,url,guid from log_source where date='20150828' and hour='18';
+				insert into table log_clear_part1 partition (date='20150828',hour='19')
+				select id,url,guid from log_source where date='20150828' and hour='19';
+		-》动态分区：一条语句实现自动分区
+			-》参数配置：
+			hive.exec.dynamic.partition=true
+			hive.exec.dynamic.partition.mode=nonstrict
+			
+			create table log_clear_part2(
+			id  string,
+			url string,
+			guid string
+			)
+			partitioned by (date string,hour string)
+			row format delimited fields terminated by '\t'
+			stored as textfile;
+			insert into table log_clear_part2 partition (date='20150828',hour)
+			select id,url,guid,hour from log_source where date='20150828';
+			
+	-》数据分析
+		create table result(
+		date string ,
+		hour string,
+		PV string,
+		UV string
+		);
+		insert overwrite table result select date,hour,count(url) PV ,count(distinct guid) UV from log_clear_part2 group by date,hour;
+	-》数据存储
+		mysql中：
+		create table result_visit(
+		date varchar(30) not null,
+		hour varchar(30) not null,
+		pv varchar(30) not null,
+		uv varchar(30) not null,
+		primary key(date,hour)
+		);
+
+	-》hive默认的分隔符：\001
+		bin/sqoop export \
+		--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/sqoop \
+		--username root \
+		--password 123456 \
+		--table result_visit \
+		--export-dir /user/hive/warehouse/log_analysis.db/result \
+		--input-fields-terminated-by '\001' \
+		-m 1
+		
+		
+		
+		
+		
+		
+		

@@ -23,7 +23,7 @@ import java.util.List;
 @Configuration
 @EnableElasticsearchRepositories(elasticsearchTemplateRef = "XXTemplate")
 public class AlphaElasticsearchConfig {
-/*    @Value("spring.data.elasticsearch.cluster-name")
+    @Value("spring.data.elasticsearch.cluster-name")
     private String clusterName;
 
     @Value("spring.data.elasticsearch.cluster-nodes")
@@ -36,7 +36,7 @@ public class AlphaElasticsearchConfig {
     public Transport alphaClient() throws Exception{
         Settings settings = Settings.builder().put(clusterName,clusterNodes)
                 .put("client.transport.sniff",false).build();
-        return new PreBuiltTransportClient(settings).addTransportAddress(getTransportAddresses());
+        return (Transport) new PreBuiltTransportClient(settings).addTransportAddresses(getTransportAddresses());
     }
 
     private TransportAddress[] getTransportAddresses() throws UnknownHostException {
@@ -54,6 +54,6 @@ public class AlphaElasticsearchConfig {
     @Bean(name = "XXTemplate")
     public ElasticsearchTemplate alphaTemplate() throws Exception{
         return new ElasticsearchTemplate((Client) alphaClient());
-    }*/
+    }
 
 }

@@ -1,0 +1,306 @@
+一、Hbase的介绍及其发展
+	-》常见的数据库
+		-》RDBMS：关系型数据库
+			-》oracle
+			-》MySQL
+			-》SQLserver
+		-》NOSQL：非关系型数据库
+			-》Hbase
+			-》mongodb
+			-》redis
+	-》企业中产生的问题
+		-》需要存储的数据量的增大			:HDFS
+		-》查询和检索的时间要求较高			:读写比较快
+	-》Hbase
+		-》官网：hbase.apache.org
+		-》特点：
+			-》分布式架构：可扩展
+			-》主从架构
+			-》nosql：一般有自己的操作语言
+			-》存储依赖于Hadoop的HDFS
+			-》读写速度比较快
+			
+		-》版本：0.98.6
+		-》特殊概念
+			-》列簇：拥有相似属性的列的集合，Hbase中每一列必须属于某一个列簇
+					rdbms：		
+							姓名		性别
+					访问姓名这一列：姓名
+					Hbase：
+								基本信息
+							姓名		性别
+					访问姓名这一列：基本信息：姓名
+						列簇：列名称（列标签）
+				创建表时，至少给定一个列簇
+			-》列存储
+				-》rdbms：按照表存储
+					如果这一列没有值，在MySQL中有这一列，但是值为null
+				-》nosql：keyvalue存储，列存储……
+					如果这一列没有值，在Hbase中没有这一列
+			-》versions：多版本存储
+				-》rdbms：行和列唯一确定一个单元格，单元格中只存储一个值
+				-》Hbase：行和列簇+列标签唯一确定一个单元格（组），单元格中可以存储多个值
+					-》个数可以自定义，0.98.6默认是1
+					-》区分：默认通过timestamp进行区分
+					-》不给时间戳，默认查询时，检索最新的值，最后插入的那个值
+			-》没有数据类型，底层存储是字节数组
+			-》rowkey：类似于rdbms中的主键的概念，唯一确定一行
+				-》Hbase中的默认检索方式，读写都是通过rowkey进行的
+				-》按照字典顺序排列
+			-》value：值，字节数组
+		-》比较MySQL和Hbase
+			-》MySQL
+				主键	姓名		年龄		性别		电话
+				001		zhangsan	18			male		110
+				002		lisi		20						120
+				select sex from stu_info where id = '002'   ->  null
+			-》Hbase
+				rowkey:001
+				cf1：basic
+					name:zhangsan
+					age:18
+					sex:male
+				cf2：connact
+					phone:110
+				110		basic:age		ts		18
+				110		basic:name		ts		zhangsan
+				110		basic:sex		ts		male
+					
+				rowkey：002
+				cf1:basic
+					name:lisi
+					age:20
+				cf2:connact
+					phone:120
+					
+二、Hbase的安装部署
+	-》下载软件包
+		hbase-0.98.6-hadoop2-bin.tar.gz  
+		http://archive.apache.org/dist/hbase/hbase-0.98.6/
+	-》环境的准备
+		-》HDFS
+			-》启动
+		-》zookeeper
+			-》启动
+	-》解压部署
+		-》解压
+			tar -zxvf hbase-0.98.6-hadoop2-bin.tar.gz -C /opt/modules/
+		-》修改配置文件
+			-》hbase-env.sh
+				export JAVA_HOME=/opt/modules/jdk1.7.0_67
+				export HBASE_MANAGES_ZK=false
+			-》hbase-site.xml
+				  <property >
+					<name>hbase.tmp.dir</name>
+					<value>/opt/modules/hbase-0.98.6-hadoop2/datas/</value>
+				  </property>
+					<property >
+					<name>hbase.rootdir</name>
+					<value>hdfs://bigdata-training01.hpsk.com:8020/hbase</value>
+				  </property>
+					<property >
+					<name>hbase.cluster.distributed</name>
+					<value>true</value>
+				  </property>
+					<property>
+					<name>hbase.zookeeper.quorum</name>
+					<value>bigdata-training01.hpsk.com</value>
+				  </property>
+			-》regionservers
+				bigdata-training01.hpsk.com
+		-》替换jar包（CDH版本不需要）
+		-》启动Hbase
+			-》命令在bin目录下
+				-》第一种：开启ssh
+					start-hbase.sh
+					stop-hbase.sh
+				-》第二种：启动每一个实例
+					hbase-daemon.sh start master		5895 HMaster
+					hbase-daemon.sh start regionserver	6015 HRegionServer
+		-》访问web
+			端口：60010
+		-》HDFS目录
+			-》WALs：预写日志
+			-》datas：表存储目录
+			-》namespace：相当于rdbms的数据库的概念
+				-》default：系统默认用户的namespace
+				-》hbase：系统的namespace
+		-》进入hbase命令行
+			bin/hbase shell
+			
+三、hbase的DDL与DML操作
+	-》帮助命令：help
+	-》查看某个命令的用法
+		help 'create_namespace'
+	-》数据库和表的定义
+		-》数据库：namespace
+			-》创建
+				create_namespace 'student'
+			-》查询
+				list_namespace
+			-》删除
+				drop_namespace 'student2'
+				被删除的namespace必须为空
+			-》描述
+				describe_namespace 'student'
+		-》表的定义
+			-》创建
+				create 'ns1:t1', {NAME => 'f1', VERSIONS => 5},{NAME => 'f2'}
+				create 't1', 'f1', 'f2', 'f3'
+				案例：
+					create 'stu_info',{NAME=>'info'}
+					create 'student:stu_info2','info2'
+			-》列举
+				list
+			-》删除
+				-》禁用表
+					disable 'student:stu_info2'
+				-》删除表
+					drop 'student:stu_info2'
+				-》启用表
+					enable 'student:stu_info2'
+			-》描述
+				-》describe 'stu_info'
+		-》对于表的增删改查
+			-》插入：put
+				-》案例
+				  hbase> put 'ns1:t1', 'r1', 'c1', 'value'
+				  hbase> put 't1', 'r1', 'c1', 'value'
+				  hbase> put 't1', 'r1', 'c1', 'value', ts1
+				-》格式
+					put 'ns:tbname','rowkey','cf:col','value'
+				-》演示
+					put 'stu_info','1001_20170101','info:name','laoda'
+					put 'stu_info','1001_20170101','info:age','18'
+					put 'stu_info','1001_20170101','info:sex','female'
+					put 'stu_info','1002_20170101','info:name','laoer'
+					put 'stu_info','1002_20170101','info:age','20'
+					put 'stu_info','0001_20170101','info:name','laosan'
+			-》查询数据
+				-》get：最快的查询方式
+					-》格式
+						get 'tbname', 'rowkey', 'cf:col'
+						get 'stu_info','1001_20170101','info:name'
+						get 'stu_info','1001_20170101','info'
+						get 'stu_info','1001_20170101'
+				-》scan：相当于select *操作，在企业中不常用
+					scan 'stu_info'
+				-》scan+filter：企业中最常用的方式，速度仅次于get
+					-》scan 'stu_info', {STARTROW => '1001_20170101',STOPROW=>'1002_20170101'}
+						-》包头不包尾的检索
+					-》scan 'stu_info', {STARTROW => '1001',STOPROW=>'1002'}
+						-》前缀匹配
+			-》删除数据
+				-》delete
+					delete 'stu_info','1002_20170101','info:age'
+				-》deleteall
+					deleteall 't1', 'r1'
+			-》更新数据：put
+				put 'stu_info','1001_20170101','info:age','20'
+				
+四、hbase的存储模型
+	-》cell
+		-》rowkey+cf+col+ts=value
+		-》字节存储
+	-》物理模型
+		-》表在所有行上按照rowkey的字典序列进行排列
+		-》表在行的方向上分割多个region
+	-》region：分区
+		-》每一个region都有相应的范围
+			region1：a-d
+			region2：e-h
+			region3：i-l
+			region4：m-p
+			
+			举例：
+				插入数据
+				rowkey：a123		->		region1
+				rowkey: b222		->		region1
+				rowkey: f333		->		region2
+		-》创建表时，默认只有一个分区
+			-》范围：没有上限和下限
+			-》到达一定大小后，会自动分割成两个region，相等大小
+				region1：0001-1000		上限：空，下限：空
+				|
+				|进行分裂，等分
+				|
+				region1-1：0001-0500	上限：空，下限：0500
+				region1-2: 0501-1000	上限：0501	下限：空
+		-》每一个region唯一被一台regionserver管理
+		-》region是分布式存储的最小单元
+	-》存储结构
+		所有的存储和检索按照rowkey来进行
+		-》regionserver
+			-》region
+				-》一个或者多个store（每一个store存储一个列簇）
+					-》memstore：一块内存区域
+					-》0-多个storefile(HFILE):最后存储在HDFS上的文件
+		-》hbase的目录结构/hbase/data
+			-》namespace
+				-》table
+					-》region
+						-》列簇
+							-》storefile
+						
+五、hbase的读写流程
+	-》查看两张系统表
+		-》hbase:namespace
+			-》存储hbase中所有namespace的信息
+		-》hbase:meta
+			-》存储hbase中所有除自己以外表的元数据信息
+			-》rowkey：hbase中除自己以外的所有表的region的信息
+			-》存储了region的名称和region的范围
+			-》存储了该region所在的regionserver的地址
+	-》hbase读写
+		-》思路
+			get/put 	->    		rowkey
+			读：rowkey	->  region名称  ->  regionserver -> region -> store -> storefile 
+
+		-》写
+			-》连接zookeeper，获取meta表所在的regionserver的地址
+			-》访问meta表，得到表中所有的region的范围
+				-》meta表的region和region所在的regionserver地址
+			-》根据rowkey得到所属的region的名称和region所在的regionserver
+			-》访问regionserver中的region
+			-》根据给定的列簇，访问需要写入region的store
+			-》写入
+				-》HLOG（WALS）
+				-》memstore
+					-》达到一定条件以后，会溢写到HDFS变成storefile
+					-》storefile不断变大，会进行合并操作，合并成一个大文件
+					-》如果文件大小达到阈值，会触发分割操作，进行等分成两个region
+		-》读
+			-》连接zookeeper，获取meta表所在的regionserver的地址
+			-》访问meta表，得到表中所有的region的范围
+				-》meta表的region和region所在的regionserver地址
+			-》根据rowkey得到所属的region的名称和region所在的regionserver
+			-》访问regionserver中的region
+			-》根据给定的列簇，访问需要读取region的store
+			-》读取
+				-》memstore
+				-》block cache
+				-》storefile
+		-》注意问题
+			-》读写时，不依赖hmaster
+			-》regionserver负责分割，master负责将两个新的region分发到其他regionserver上
+			-》hlog是预写日志，类似于second namenode中的edits文件
+			-》对于hbase中删除和更新操作，不是立即完成，只是对数据打了个标签，等到底层触发
+				compact合并操作时，才会进行真正的删除或者更新
+			
+					
+				
+				
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		

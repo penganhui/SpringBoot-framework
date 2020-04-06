@@ -1,0 +1,178 @@
+一、hbase Java api
+	-》http://hbase.apache.org/book.html#hbase_apis
+	-》创建maven工程
+		-》添加hbase依赖
+			<dependency>
+			  <groupId>org.apache.hbase</groupId>
+			  <artifactId>hbase-client</artifactId>
+			  <version>0.98.6</version>
+			</dependency>
+			<dependency>
+			  <groupId>org.apache.hbase</groupId>
+			  <artifactId>hbase-server</artifactId>
+			  <version>0.98.6</version>
+			</dependency>
+		-》添加配置文件到本地的开发环境中
+			-》创建一个source folder
+			-》将配置文件放入source目录下
+				-》core-site
+				-》hdfs-site
+				-》hbase-site
+				-》regionserver
+				-》log4j
+	-》编写API
+		-》get
+		-》put
+		-》delete
+		-》scan
+		
+二、hbase与MapReduce的集成
+	-》http://hbase.apache.org/book.html#mapreduce
+	-》hbase是数据库用于存储数据
+	-》MapReduce是计算模型，用于处理数据
+	-》hbase+MapReduce
+		-》从hbase中读数据
+		-》将MapReduce的输出保存到hbase
+		-》从hbase中读数据，再输出到hbase中
+	-》hbase自带的MapReduce案例包
+		-》hbase的lib目录hbase-server-0.98.6-hadoop2.jar
+		-》运行jar包
+			报错：
+			java.lang.NoClassDefFoundError: org/apache/hadoop/hbase/filter/Filter
+			解决：将hbase运行MapReduce时需要的jar包放入Hadoop的运行环境下
+			-》hbase在运行MapReduce时需要的jar包
+				bin/hbase mapredcp
+			-》将jar包地址放入Hadoop的运行环境变量
+				export HBASE_HOME=/opt/modules/hbase-0.98.6-hadoop2
+				export HADOOP_CLASSPATH=$HADOOP_CLASSPATH:`$HBASE_HOME/bin/hbase mapredcp`
+		-》重新运行jar包
+			../hadoop-2.5.0/bin/yarn jar lib/hbase-server-0.98.6-hadoop2.jar 
+		-》测试rowcounter
+			rowcounter: Count rows in HBase table
+			用法：
+			Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]
+			
+			../hadoop-2.5.0/bin/yarn jar lib/hbase-server-0.98.6-hadoop2.jar rowcounter stu_info
+	-》自定义需求
+		-》将stu_info中所有rowkey的name列导入t1表中
+			-》从hbase中读数据
+				-》从stu_info
+				-》过滤，只取name列
+			-》往hbase中写数据
+				-》将获取的name列写入t1表
+		-》编写程序实现
+			-》配置maven依赖
+			-》配置文件放入source
+			-》编写代码
+				-》map程序需要继承 tablemapper
+					默认输入的类型
+					key:ImmutableBytesWritable		-> rowkey
+					value:Result					-> rowkey对应的所有列
+				-》reduce程序需要继承 tablereducer
+				-》驱动类中
+					-》初始化输入和map
+					TableMapReduceUtil.initTableMapperJob
+					-》初始化reduce和输出
+					TableMapReduceUtil.initTableReducerJob
+			-》打包，上传，运行
+			
+三、importTSV
+	-》一个用于将tsv格式或者其他固定格式的文本数据导入到hbase表中的工具
+	-》importtsv: Import data in TSV format.
+		-》TSV：文件中每列是用制表符分隔的
+		-》CSV：文件中每列是用逗号分隔的
+	-》用法
+		Usage: importtsv -Dimporttsv.columns=a,b,c <tablename> <inputdir>
+	-》测试：
+		案例1：通过MapReduce的put对象写入hbase表的
+			../hadoop-2.5.0/bin/yarn jar lib/hbase-server-0.98.6-hadoop2.jar importtsv -Dimporttsv.columns=HBASE_ROW_KEY,info:age,info:sex t1 /import/import.tsv
+		案例2：直接将转换好的Hfile放入hbase表的目录中
+			第一步：将数据文件转换成Hfile 
+				添加参数：-Dimporttsv.bulk.output=/path/for/output
+			../hadoop-2.5.0/bin/yarn jar lib/hbase-server-0.98.6-hadoop2.jar importtsv -Dimporttsv.bulk.output=/load/ -Dimporttsv.columns=HBASE_ROW_KEY,info:age,info:sex t1 /import/load.tsv
+			第二步：将转换好的hfile文件导入hbase的表目录中
+				工具：completebulkload:只是一个Java程序
+				../hadoop-2.5.0/bin/yarn jar lib/hbase-server-0.98.6-hadoop2.jar completebulkload
+				usage: completebulkload /path/to/hfileoutputformat-output tablename
+				
+				../hadoop-2.5.0/bin/yarn jar lib/hbase-server-0.98.6-hadoop2.jar completebulkload /load/ t1
+	-》其他格式
+		-》'-Dimporttsv.separator=|' - eg separate on pipes instead of tabs
+			用于指定固定的分隔符
+			../hadoop-2.5.0/bin/yarn jar lib/hbase-server-0.98.6-hadoop2.jar importtsv '-Dimporttsv.separator=,' -Dimporttsv.columns=HBASE_ROW_KEY,info:age,info:sex t1 /import/load.csv
+			
+			
+四、hbase与sqoop的集成
+	-》将MySQL中的数据导入到Hbase中
+	-》sqoop导入到hbase
+		bin/sqoop import \
+		--connect jdbc:mysql://bigdata-training01.hpsk.com:3306/test \
+		--username root \
+		--password 123456 \
+		--table toHbase \
+		--hbase-table t1 \
+		--hbase-row-key id \
+		--column-family info \
+		-m 1
+	-》sqoop将hbase中数据导出到MySQL
+		-》默认不可以的
+		-》如果有实际的应用场景需要
+			-》hive与hbase集成
+			-》再通过hive将数据导出到MySQL
+			
+五、hbase完全分布式集群
+	-》Linux环境
+		-》防火墙和selinux
+		-》ssh免密钥登录
+		-》ntp时间同步
+		-》jdk
+	-》Hadoop集群
+		-》删除原始记录
+			-》本地数据
+			-》日志文件
+		-》修改配置文件
+			-》core
+			-》hdfs
+			-》mapred
+			-》yarn
+			-》slaves
+	-》zookeeper
+		-》删除原始记录
+			-》本地数据
+				rm -rf datas/*
+		-》修改配置文件
+			-》zoo.cfg
+	-》hbase
+		-》删除原始记录
+			-》本地数据
+				rm -rf datas/*
+			-》日志文件
+				rm -rf logs/*
+		-》修改配置文件
+			-》hbase-site
+			-》regionservers
+	-》分发
+		-》zookeeper分发完成需要修改myid
+	-》Hadoop的格式化
+		bin/hdfs namenode -format
+	-》启动
+		-》启动Hadoop（HDFS）
+			sbin/start-dfs.sh
+		-》启动zookeeper
+			bin/zkServer.sh start
+		-》启动hbase
+	-》解决hbase的单点问题
+		-》通过zookeeper来确保同一时刻只有一个active的master进程
+		-》配置
+			只需要在需要的节点启动master进程即可，zookeeper会自动管理
+	
+	
+	
+	
+	
+	
+	
+	
+				
+				
+				
