@@ -44,11 +44,12 @@ public class AlphaElasticsearchConfig {
         if (StringUtils.isEmpty(clusterNodes)){
             String[] urlList = clusterNodes.split(",");
             for (String str: urlList  ) {
-                TransportAddress transportAddress = new TransportAddress(InetAddress.getByName(str),clusterPort);
-                list.add(transportAddress);
+//                TransportAddress transportAddress = new TransportAddress(InetAddress.getByName(str),clusterPort);
+//                list.add(transportAddress);
             }
             return list.toArray(new TransportAddress[list.size()]);
         }
+        return null;
     }
 
     @Bean(name = "XXTemplate")
