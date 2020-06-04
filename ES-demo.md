@@ -182,6 +182,8 @@ spring.data.elasticsearch.cluster-nodes=192.168.1.63:9300
 spring.data.elasticsearch.xpack.user=elastic
 spring.data.elasticsearch.xpack.password=changeme
 ```
+
+```
 <build>
 		<plugins>
 			<plugin>
@@ -228,6 +230,4 @@ spring.data.elasticsearch.xpack.password=changeme
 			<url>http://szxy1.artifactory.cd-cloud-artifact.tools.huawei.com/artifactory/sz-maven-snapshot/</url>
 		</snapshotRepository>
 	</distributionManagement>
-```
-
 ```
