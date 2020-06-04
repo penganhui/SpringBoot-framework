@@ -182,4 +182,52 @@ spring.data.elasticsearch.cluster-nodes=192.168.1.63:9300
 spring.data.elasticsearch.xpack.user=elastic
 spring.data.elasticsearch.xpack.password=changeme
 ```
+<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.3</version>
+				<configuration>
+					<source>1.8</source>
+					<target>1.8</target>
+				</configuration>
+			</plugin>
+			<plugin>
+				<artifactId>maven-assembly-plugin</artifactId>
+				<configuration>
+					<finalName>LogtaskApplication</finalName>
+					<archive>
+						<manifest>
+							<mainClass>com.huawei.camp.devflink.task.Logtask</mainClass>
+						</manifest>
+					</archive>
+					<descriptorRefs>
+						<descriptorRef>jar-with-dependencies</descriptorRef>
+					</descriptorRefs>
+				</configuration>
+				<executions>
+					<execution>
+						<id>make-assembly</id>
+						<phase>package</phase>
+						<goals>
+							<goal>single</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
+	<distributionManagement>
+		<repository>
+			<id>CloudArtifact-central</id>
+			<url>http://szxy1.artifactory.cd-cloud-artifact.tools.huawei.com/artifactory/sz-maven-release/</url>
+		</repository>
+		<snapshotRepository>
+			<id>CloudArtifact-snapshots</id>
+			<url>http://szxy1.artifactory.cd-cloud-artifact.tools.huawei.com/artifactory/sz-maven-snapshot/</url>
+		</snapshotRepository>
+	</distributionManagement>
+```
 
+```
